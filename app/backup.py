@@ -5,19 +5,27 @@ import logging
 from pathlib import Path
 from typing import Iterable, Mapping, Any
 
-from app.config import JSONL_BACKUP_PATH, ensure_runtime_directories
+from app.config import (
+    JSONL_BACKUP_PATH,
+    RAW_INPUTS_JSONL_PATH,
+    ensure_runtime_directories,
+)
 
 
 class JSONLBackupService:
     def __init__(self, backup_path: Path = JSONL_BACKUP_PATH) -> None:
         self.backup_path = backup_path
+        self.raw_inputs_path = RAW_INPUTS_JSONL_PATH
         self.logger = logging.getLogger("ybkj_workflow.backup")
 
     def initialize_backup_file(self) -> Path:
         ensure_runtime_directories()
         self.backup_path.parent.mkdir(parents=True, exist_ok=True)
         self.backup_path.touch(exist_ok=True)
+        self.raw_inputs_path.parent.mkdir(parents=True, exist_ok=True)
+        self.raw_inputs_path.touch(exist_ok=True)
         self.logger.info("JSONL backup placeholder ready: %s", self.backup_path)
+        self.logger.info("Raw input JSONL ready: %s", self.raw_inputs_path)
         return self.backup_path
 
     def backup_records(
@@ -34,3 +42,6 @@ class JSONLBackupService:
 
         self.logger.info("JSONL backup completed: %s", target_path)
         return target_path
+
+    def append_raw_input(self, record: Mapping[str, Any]) -> Path:
+        return self.backup_records([record], output_path=self.raw_inputs_path)

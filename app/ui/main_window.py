@@ -5,6 +5,7 @@ import logging
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QFrame,
     QGridLayout,
@@ -21,6 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import APP_INFO, LOGO_PATH
+from app.database import SQLiteDataPool
+from app.intake_service import IntakeService
+from app.local_config import LocalConfigService
+from app.ui.data_entry_page import DataEntryPage
+from app.ui.styles import get_stylesheet
 
 
 NAV_ITEMS = [
@@ -37,12 +43,12 @@ NAV_ITEMS = [
 ]
 
 HOME_CARDS = [
-    ("今日记录数", "0"),
+    ("今日记录数", "today_record_count"),
     ("火灾报警数量", "0"),
     ("视频监控数量", "0"),
     ("其他装置及设备数量", "0"),
     ("总工时", "0.0"),
-    ("待人工确认数量", "0"),
+    ("待人工确认数量", "pending_confirmation_count"),
 ]
 
 
@@ -69,12 +75,15 @@ class DashboardCard(QFrame):
         title_label = QLabel(title)
         title_label.setObjectName("CardTitle")
 
-        value_label = QLabel(value)
-        value_label.setObjectName("CardValue")
+        self.value_label = QLabel(value)
+        self.value_label.setObjectName("CardValue")
 
         layout.addWidget(title_label)
-        layout.addWidget(value_label)
+        layout.addWidget(self.value_label)
         layout.addStretch(1)
+
+    def set_value(self, value: str) -> None:
+        self.value_label.setText(value)
 
 
 class PlaceholderPage(QFrame):
@@ -100,10 +109,56 @@ class PlaceholderPage(QFrame):
         layout.addStretch(1)
 
 
-class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+class SettingsPage(QFrame):
+    def __init__(self, current_theme: str) -> None:
         super().__init__()
+        self.setObjectName("PlaceholderCard")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 28, 28, 28)
+        layout.setSpacing(12)
+
+        title_label = QLabel("设置")
+        title_label.setObjectName("PlaceholderTitle")
+
+        desc_label = QLabel("主题设置说明占位页。")
+        desc_label.setWordWrap(True)
+        desc_label.setObjectName("PlaceholderDescription")
+
+        self.current_theme_label = QLabel()
+        self.current_theme_label.setObjectName("MetaText")
+
+        note_label = QLabel("可通过左侧底部按钮切换")
+        note_label.setObjectName("MetaText")
+
+        layout.addWidget(title_label)
+        layout.addWidget(desc_label)
+        layout.addWidget(self.current_theme_label)
+        layout.addWidget(note_label)
+        layout.addStretch(1)
+
+        self.set_current_theme(current_theme)
+
+    def set_current_theme(self, theme: str) -> None:
+        theme_text = "浅色模式" if theme == "light" else "深色模式"
+        self.current_theme_label.setText(f"当前主题：{theme_text}")
+
+
+class MainWindow(QMainWindow):
+    def __init__(
+        self,
+        data_pool: SQLiteDataPool,
+        intake_service: IntakeService,
+        local_config_service: LocalConfigService,
+        initial_theme: str,
+    ) -> None:
+        super().__init__()
+        self.data_pool = data_pool
+        self.intake_service = intake_service
+        self.local_config_service = local_config_service
+        self.current_theme = initial_theme
         self.logger = logging.getLogger("ybkj_workflow.ui")
+        self.dashboard_cards: dict[str, DashboardCard] = {}
         self.setWindowTitle(APP_INFO.project_name_en)
         self.resize(1360, 860)
         self.setMinimumSize(QSize(1180, 760))
@@ -172,6 +227,12 @@ class MainWindow(QMainWindow):
         offline_tip = QLabel("离线模式已启用\n企业微信接口默认关闭")
         offline_tip.setObjectName("SidebarSubtitle")
         offline_tip.setWordWrap(True)
+        self.theme_toggle_button = QPushButton()
+        self.theme_toggle_button.setObjectName("ThemeToggleButton")
+        self.theme_toggle_button.clicked.connect(self.toggle_theme)
+        self._update_theme_toggle_button_text()
+
+        layout.addWidget(self.theme_toggle_button)
         layout.addWidget(offline_tip)
 
         return sidebar
@@ -192,8 +253,14 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_home_page())
-        for item in NAV_ITEMS[1:]:
+        self.data_entry_page = DataEntryPage(self.intake_service)
+        self.data_entry_page.submitted.connect(self.handle_data_submitted)
+        self.stack.addWidget(self._wrap_page(self.data_entry_page))
+
+        for item in NAV_ITEMS[2:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
+        self.settings_page = SettingsPage(self.current_theme)
+        self.stack.addWidget(self._wrap_page(self.settings_page))
 
         layout.addWidget(self.stack, 1)
         return container
@@ -217,10 +284,14 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(16)
 
-        for index, (title, value) in enumerate(HOME_CARDS):
+        for index, (title, value_key) in enumerate(HOME_CARDS):
             row = index // 3
             column = index % 3
-            grid.addWidget(DashboardCard(title, value), row, column)
+            display_value = "0.0" if title == "总工时" else "0"
+            card = DashboardCard(title, display_value)
+            if value_key in {"today_record_count", "pending_confirmation_count"}:
+                self.dashboard_cards[value_key] = card
+            grid.addWidget(card, row, column)
 
         cards_container = QWidget()
         cards_container.setLayout(grid)
@@ -228,6 +299,7 @@ class MainWindow(QMainWindow):
 
         scroll_area.setWidget(scroll_content)
         page_layout.addWidget(scroll_area)
+        self.refresh_dashboard()
         return page
 
     def _build_about_card(self) -> QFrame:
@@ -293,6 +365,42 @@ class MainWindow(QMainWindow):
     def switch_page(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         self.logger.info("Switched to page: %s", NAV_ITEMS[index])
+
+    def refresh_dashboard(self) -> None:
+        counts = self.data_pool.get_dashboard_counts()
+        if "today_record_count" in self.dashboard_cards:
+            self.dashboard_cards["today_record_count"].set_value(
+                str(counts["today_record_count"])
+            )
+        if "pending_confirmation_count" in self.dashboard_cards:
+            self.dashboard_cards["pending_confirmation_count"].set_value(
+                str(counts["pending_confirmation_count"])
+            )
+
+    def handle_data_submitted(self) -> None:
+        self.refresh_dashboard()
+        self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
+
+    def toggle_theme(self) -> None:
+        next_theme = "light" if self.current_theme == "dark" else "dark"
+        self.apply_theme(next_theme)
+        self.local_config_service.save_theme(next_theme)
+        self.statusBar().showMessage(f"主题已切换为：{'浅色模式' if next_theme == 'light' else '深色模式'}", 3000)
+
+    def apply_theme(self, theme: str) -> None:
+        self.current_theme = "light" if theme == "light" else "dark"
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(get_stylesheet(self.current_theme))
+        self._update_theme_toggle_button_text()
+        self.settings_page.set_current_theme(self.current_theme)
+        self.logger.info("Theme switched: %s", self.current_theme)
+
+    def _update_theme_toggle_button_text(self) -> None:
+        if self.current_theme == "light":
+            self.theme_toggle_button.setText("🌙 深色模式")
+        else:
+            self.theme_toggle_button.setText("☀ 浅色模式")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.logger.info("Main window close requested")

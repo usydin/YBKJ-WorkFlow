@@ -30,6 +30,7 @@ outputs/text/*
 reports/daily/*
 reports/statistics/*
 datapool/exports_history/*
+datapool/jsonl/*
 
 # Keep directories
 !outputs/excel/.gitkeep
@@ -39,6 +40,7 @@ datapool/exports_history/*
 !reports/daily/.gitkeep
 !reports/statistics/.gitkeep
 !datapool/exports_history/.gitkeep
+!datapool/jsonl/.gitkeep
 
 # Model runtime files
 model_pack/current/*

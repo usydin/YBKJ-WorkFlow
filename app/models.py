@@ -17,3 +17,14 @@ class MaintenanceRecord:
     personnel: list[str] = field(default_factory=list)
     raw_text: str = ""
     requires_confirmation: bool = False
+
+
+@dataclass(slots=True)
+class RawInputRecord:
+    created_at: str
+    operator_name: str
+    source_type: str
+    default_project: str
+    raw_text: str
+    status: str = "pending_parse"
+    note: str = ""
