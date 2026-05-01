@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+build/
+dist/
+*.spec
+
+# macOS
+.DS_Store
+
+# Logs
+logs/*.log
+
+# Runtime database
+datapool/sqlite/*.db
+datapool/sqlite/*.sqlite
+datapool/sqlite/*.sqlite3
+
+# Outputs
+outputs/excel/*
+outputs/word/*
+outputs/pdf/*
+outputs/text/*
+reports/daily/*
+reports/statistics/*
+datapool/exports_history/*
+
+# Keep directories
+!outputs/excel/.gitkeep
+!outputs/word/.gitkeep
+!outputs/pdf/.gitkeep
+!outputs/text/.gitkeep
+!reports/daily/.gitkeep
+!reports/statistics/.gitkeep
+!datapool/exports_history/.gitkeep
+
+# Model runtime files
+model_pack/current/*
+model_pack/versions/*
+
+# Keep model directories
+!model_pack/current/.gitkeep
+!model_pack/versions/.gitkeep
+
+# Local config
+config.local.json
+.env
+
+# IDE
+.idea/
+.vscode/
