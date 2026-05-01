@@ -42,6 +42,9 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 智能解析页基础列表展示
 - 人工确认页 `V0.1`
 - `corrections.log` 人工修正留痕
+- 日报文本生成 `V0.1`
+- Excel 导出 `V0.1`
+- 日报 TXT / Markdown 导出
 
 ## 多来源输入设计
 
@@ -115,6 +118,20 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 
 所有人工修改和状态流转都会追加写入 `dataset/corrections.log`。
 
+## 日报生成 V0.1
+
+日报生成当前基于 `parsed_records.confirm_status = confirmed` 的可信记录，不直接读取 `raw_inputs`。
+
+当前规则：
+
+- `confirmed` 记录进入日报
+- `pending` 记录默认不进入日报
+- `ignored` 记录默认不进入日报
+- 支持按日期、项目、系统类别、工作类型、人员关键词筛选
+- 支持复制日报文本到企业微信或微信
+- 支持导出到 `reports/daily/` 目录下的 TXT / Markdown 文件
+- 企业微信自动发送接口仅预留，当前版本不主动联网
+
 ## 员工网名映射预留
 
 微信昵称不等于真实员工姓名，因此系统已预留 `employee_aliases` 表，用于维护：
@@ -166,7 +183,7 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 日志中心
 - 设置
 
-其中“工作台”“数据录入”“智能解析”“人工确认”“设置”已经具备基础可用能力，其余页面仍为占位页。
+其中“工作台”“数据录入”“智能解析”“人工确认”“日报生成”“设置”已经具备基础可用能力，其余页面仍为占位页。
 
 ## 当前项目结构
 
@@ -178,6 +195,7 @@ YBKJ-WorkFlow/
 │  │  ├─ data_entry_page.py
 │  │  ├─ main_window.py
 │  │  ├─ parse_page.py
+│  │  ├─ report_page.py
 │  │  └─ styles.py
 │  ├─ backup.py
 │  ├─ config.py
@@ -188,6 +206,7 @@ YBKJ-WorkFlow/
 │  ├─ logging_setup.py
 │  ├─ models.py
 │  ├─ parser_engine.py
+│  ├─ report_service.py
 │  └─ wecom.py
 ├─ dataset/
 │  └─ samples/
@@ -234,6 +253,7 @@ python3 -m venv .venv
 - SQLite 数据库默认位于 `datapool/sqlite/ybkj_workflow.db`
 - 原始输入 JSONL 默认位于 `datapool/jsonl/raw_inputs.jsonl`
 - 人工修正留痕默认位于 `dataset/corrections.log`
+- 日报导出默认位于 `reports/daily/`
 - 企业微信接口默认关闭，不联网
 - `config.local.json`、运行数据库、日志和 JSONL 备份默认不提交到 GitHub
 
@@ -241,6 +261,7 @@ python3 -m venv .venv
 
 - OCR
 - Excel 导出
+- Word / PDF 导出
 - 批量 TXT 导入实际执行逻辑
 - 复杂模型训练
 
@@ -249,5 +270,5 @@ python3 -m venv .venv
 - 增加 employee_aliases 的基础管理界面
 - 为批量 TXT 导入增加任务级入口
 - 将 corrections.log 与规则优化、人工映射维护联动
-- 为 confirmed 记录接入日报、统计和 Excel 导出
+- 为 confirmed 记录接入 Word / PDF 导出
 - 在人工确认页补充更细的时间校验和批量操作

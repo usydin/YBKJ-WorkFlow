@@ -16,6 +16,8 @@ from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
 from app.logging_setup import setup_logging
 from app.parser_engine import ParserEngine
+from app.report_service import DailyReportService
+from app.excel_export_service import ExcelExportService
 from app.ui.main_window import MainWindow
 from app.ui.styles import get_stylesheet
 from app.wecom import WeComIntegration
@@ -49,6 +51,8 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     corrections_service = CorrectionsLogService()
     corrections_path = corrections_service.ensure_file()
     parser_engine = ParserEngine(data_pool)
+    report_service = DailyReportService(data_pool)
+    excel_export_service = ExcelExportService(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
 
@@ -56,12 +60,16 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     logger.info("JSONL backup ready: %s", backup_path)
     logger.info("Corrections log ready: %s", corrections_path)
     logger.info("Parser engine ready: %s", parser_engine.__class__.__name__)
+    logger.info("Report service ready: %s", report_service.__class__.__name__)
+    logger.info("Excel export service ready: %s", excel_export_service.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
         "data_pool": data_pool,
         "backup_service": backup_service,
         "corrections_service": corrections_service,
         "parser_engine": parser_engine,
+        "report_service": report_service,
+        "excel_export_service": excel_export_service,
         "wecom": wecom,
         "intake_service": intake_service,
     }
@@ -90,6 +98,8 @@ def main() -> int:
         intake_service=services["intake_service"],
         parser_engine=services["parser_engine"],
         corrections_service=services["corrections_service"],
+        report_service=services["report_service"],
+        excel_export_service=services["excel_export_service"],
         local_config_service=local_config_service,
         initial_theme=initial_theme,
     )

@@ -61,3 +61,11 @@ dataset/samples/screenshots_raw/*
 # IDE
 .idea/
 .vscode/
+
+# SQLite runtime sidecar files
+datapool/sqlite/*.db-wal
+datapool/sqlite/*.db-shm
+datapool/sqlite/*.sqlite-wal
+datapool/sqlite/*.sqlite-shm
+datapool/sqlite/*.sqlite3-wal
+datapool/sqlite/*.sqlite3-shm

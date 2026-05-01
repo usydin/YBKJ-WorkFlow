@@ -364,6 +364,118 @@ class SQLiteDataPool:
             counts[str(row["confirm_status"])] = int(row["count"])
         return counts
 
+    def list_confirmed_records_for_report(
+        self,
+        date: str | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        filters = filters or {}
+        query = ["SELECT * FROM parsed_records WHERE confirm_status = 'confirmed'"]
+        params: list[Any] = []
+
+        normalized_date = (date or "").strip()
+        if normalized_date:
+            query.append("AND work_date = ?")
+            params.append(normalized_date)
+
+        if project := str(filters.get("project", "")).strip():
+            if project != "全部":
+                query.append("AND project = ?")
+                params.append(project)
+        if system_category := str(filters.get("system_category", "")).strip():
+            if system_category != "全部":
+                query.append("AND system_category = ?")
+                params.append(system_category)
+        if work_type := str(filters.get("work_type", "")).strip():
+            if work_type != "全部":
+                query.append("AND work_type = ?")
+                params.append(work_type)
+        if worker_names := str(filters.get("worker_names", "")).strip():
+            query.append("AND worker_names LIKE ?")
+            params.append(f"%{worker_names}%")
+
+        query.append(
+            """
+            ORDER BY
+                CASE WHEN work_date = '' THEN 1 ELSE 0 END ASC,
+                work_date DESC,
+                CASE WHEN start_time = '' THEN 1 ELSE 0 END ASC,
+                start_time ASC,
+                id ASC
+            """
+        )
+
+        with self._connect() as connection:
+            rows = connection.execute(" ".join(query), tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_available_work_dates(self) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT work_date
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                  AND work_date <> ''
+                ORDER BY work_date DESC
+                """
+            ).fetchall()
+        return [str(row["work_date"]) for row in rows]
+
+    def get_report_filter_options(self) -> dict[str, list[str]]:
+        with self._connect() as connection:
+            project_rows = connection.execute(
+                """
+                SELECT DISTINCT project
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                  AND project <> ''
+                ORDER BY project ASC
+                """
+            ).fetchall()
+            system_rows = connection.execute(
+                """
+                SELECT DISTINCT system_category
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                  AND system_category <> ''
+                ORDER BY system_category ASC
+                """
+            ).fetchall()
+            work_type_rows = connection.execute(
+                """
+                SELECT DISTINCT work_type
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                  AND work_type <> ''
+                ORDER BY work_type ASC
+                """
+            ).fetchall()
+            worker_rows = connection.execute(
+                """
+                SELECT DISTINCT worker_names
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                  AND worker_names <> ''
+                ORDER BY worker_names ASC
+                """
+            ).fetchall()
+
+        worker_names: set[str] = set()
+        for row in worker_rows:
+            raw_names = str(row["worker_names"]).replace("，", ",").replace("、", ",")
+            for item in raw_names.split(","):
+                normalized_name = item.strip()
+                if normalized_name:
+                    worker_names.add(normalized_name)
+
+        return {
+            "projects": [str(row["project"]) for row in project_rows],
+            "system_categories": [str(row["system_category"]) for row in system_rows],
+            "work_types": [str(row["work_type"]) for row in work_type_rows],
+            "worker_names": sorted(worker_names),
+        }
+
     def resolve_employee_alias(self, nickname: str) -> str:
         if not nickname.strip():
             return ""

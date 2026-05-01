@@ -26,9 +26,12 @@ from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
+from app.report_service import DailyReportService
 from app.ui.confirm_page import ConfirmPage
 from app.ui.data_entry_page import DataEntryPage
 from app.ui.parse_page import ParsePage
+from app.ui.report_page import ReportPage
+from app.ui.excel_export_page import ExcelExportPage
 from app.ui.styles import get_stylesheet
 
 
@@ -162,6 +165,8 @@ class MainWindow(QMainWindow):
         intake_service: IntakeService,
         parser_engine,
         corrections_service: CorrectionsLogService,
+        report_service,
+        excel_export_service,
         local_config_service: LocalConfigService,
         initial_theme: str,
     ) -> None:
@@ -170,6 +175,8 @@ class MainWindow(QMainWindow):
         self.intake_service = intake_service
         self.parser_engine = parser_engine
         self.corrections_service = corrections_service
+        self.report_service = report_service
+        self.excel_export_service = excel_export_service
         self.local_config_service = local_config_service
         self.current_theme = initial_theme
         self.logger = logging.getLogger("ybkj_workflow.ui")
@@ -281,8 +288,12 @@ class MainWindow(QMainWindow):
         )
         self.confirm_page.updated.connect(self.handle_confirm_updated)
         self.stack.addWidget(self._wrap_page(self.confirm_page))
-
-        for item in NAV_ITEMS[4:-1]:
+        self.stack.addWidget(self._wrap_page(PlaceholderPage("数据池")))
+        self.report_page = ReportPage(self.data_pool, self.report_service)
+        self.stack.addWidget(self._wrap_page(self.report_page))
+        self.excel_export_page = ExcelExportPage(self.data_pool, self.excel_export_service)
+        self.stack.addWidget(self._wrap_page(self.excel_export_page))
+        for item in NAV_ITEMS[7:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
         self.settings_page = SettingsPage(self.current_theme)
         self.stack.addWidget(self._wrap_page(self.settings_page))
@@ -419,18 +430,22 @@ class MainWindow(QMainWindow):
         self.refresh_dashboard()
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
+        self.report_page.refresh_page()
         self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
 
     def handle_parse_completed(self) -> None:
         self.refresh_dashboard()
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
+        self.report_page.refresh_page()
         self.statusBar().showMessage("智能解析已执行，结果已写入待人工确认记录。", 3000)
 
     def handle_confirm_updated(self) -> None:
         self.refresh_dashboard()
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
+        self.report_page.refresh_page()
+        self.excel_export_page.refresh_page()
         self.statusBar().showMessage("人工确认结果已保存并写入 corrections.log。", 3000)
 
     def toggle_theme(self) -> None:
