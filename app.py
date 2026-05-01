@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.backup import JSONLBackupService
 from app.config import APP_INFO, ensure_runtime_directories
+from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
@@ -45,17 +46,21 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     db_path = data_pool.initialize()
     backup_service = JSONLBackupService()
     backup_path = backup_service.initialize_backup_file()
+    corrections_service = CorrectionsLogService()
+    corrections_path = corrections_service.ensure_file()
     parser_engine = ParserEngine(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
 
     logger.info("Database ready: %s", db_path)
     logger.info("JSONL backup ready: %s", backup_path)
+    logger.info("Corrections log ready: %s", corrections_path)
     logger.info("Parser engine ready: %s", parser_engine.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
         "data_pool": data_pool,
         "backup_service": backup_service,
+        "corrections_service": corrections_service,
         "parser_engine": parser_engine,
         "wecom": wecom,
         "intake_service": intake_service,
@@ -84,6 +89,7 @@ def main() -> int:
         data_pool=services["data_pool"],
         intake_service=services["intake_service"],
         parser_engine=services["parser_engine"],
+        corrections_service=services["corrections_service"],
         local_config_service=local_config_service,
         initial_theme=initial_theme,
     )

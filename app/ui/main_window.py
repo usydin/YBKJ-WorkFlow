@@ -22,9 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import APP_INFO, LOGO_PATH
+from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
+from app.ui.confirm_page import ConfirmPage
 from app.ui.data_entry_page import DataEntryPage
 from app.ui.parse_page import ParsePage
 from app.ui.styles import get_stylesheet
@@ -34,6 +36,7 @@ NAV_ITEMS = [
     "工作台",
     "数据录入",
     "智能解析",
+    "人工确认",
     "数据池",
     "日报生成",
     "Excel导出",
@@ -45,11 +48,11 @@ NAV_ITEMS = [
 
 HOME_CARDS = [
     ("今日记录数", "today_record_count"),
+    ("待人工确认数量", "pending_confirmation_count"),
+    ("已确认记录数量", "confirmed_record_count"),
+    ("已忽略记录数量", "ignored_record_count"),
     ("火灾报警数量", "0"),
     ("视频监控数量", "0"),
-    ("其他装置及设备数量", "0"),
-    ("总工时", "0.0"),
-    ("待人工确认数量", "pending_confirmation_count"),
 ]
 
 
@@ -158,6 +161,7 @@ class MainWindow(QMainWindow):
         data_pool: SQLiteDataPool,
         intake_service: IntakeService,
         parser_engine,
+        corrections_service: CorrectionsLogService,
         local_config_service: LocalConfigService,
         initial_theme: str,
     ) -> None:
@@ -165,6 +169,7 @@ class MainWindow(QMainWindow):
         self.data_pool = data_pool
         self.intake_service = intake_service
         self.parser_engine = parser_engine
+        self.corrections_service = corrections_service
         self.local_config_service = local_config_service
         self.current_theme = initial_theme
         self.logger = logging.getLogger("ybkj_workflow.ui")
@@ -269,8 +274,15 @@ class MainWindow(QMainWindow):
         self.parse_page = ParsePage(self.data_pool, self.parser_engine)
         self.parse_page.parsed.connect(self.handle_parse_completed)
         self.stack.addWidget(self._wrap_page(self.parse_page))
+        self.confirm_page = ConfirmPage(
+            self.data_pool,
+            self.corrections_service,
+            APP_INFO.developer,
+        )
+        self.confirm_page.updated.connect(self.handle_confirm_updated)
+        self.stack.addWidget(self._wrap_page(self.confirm_page))
 
-        for item in NAV_ITEMS[3:-1]:
+        for item in NAV_ITEMS[4:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
         self.settings_page = SettingsPage(self.current_theme)
         self.stack.addWidget(self._wrap_page(self.settings_page))
@@ -302,7 +314,12 @@ class MainWindow(QMainWindow):
             column = index % 3
             display_value = "0.0" if title == "总工时" else "0"
             card = DashboardCard(title, display_value)
-            if value_key in {"today_record_count", "pending_confirmation_count"}:
+            if value_key in {
+                "today_record_count",
+                "pending_confirmation_count",
+                "confirmed_record_count",
+                "ignored_record_count",
+            }:
                 self.dashboard_cards[value_key] = card
             grid.addWidget(card, row, column)
 
@@ -389,16 +406,32 @@ class MainWindow(QMainWindow):
             self.dashboard_cards["pending_confirmation_count"].set_value(
                 str(counts["pending_confirmation_count"])
             )
+        if "confirmed_record_count" in self.dashboard_cards:
+            self.dashboard_cards["confirmed_record_count"].set_value(
+                str(counts["confirmed_record_count"])
+            )
+        if "ignored_record_count" in self.dashboard_cards:
+            self.dashboard_cards["ignored_record_count"].set_value(
+                str(counts["ignored_record_count"])
+            )
 
     def handle_data_submitted(self) -> None:
         self.refresh_dashboard()
         self.parse_page.refresh_page()
+        self.confirm_page.refresh_page()
         self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
 
     def handle_parse_completed(self) -> None:
         self.refresh_dashboard()
         self.parse_page.refresh_page()
+        self.confirm_page.refresh_page()
         self.statusBar().showMessage("智能解析已执行，结果已写入待人工确认记录。", 3000)
+
+    def handle_confirm_updated(self) -> None:
+        self.refresh_dashboard()
+        self.parse_page.refresh_page()
+        self.confirm_page.refresh_page()
+        self.statusBar().showMessage("人工确认结果已保存并写入 corrections.log。", 3000)
 
     def toggle_theme(self) -> None:
         next_theme = "light" if self.current_theme == "dark" else "dark"

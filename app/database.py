@@ -114,10 +114,19 @@ class SQLiteDataPool:
                     result TEXT DEFAULT '',
                     source_raw_text TEXT NOT NULL,
                     confirm_status TEXT NOT NULL DEFAULT 'pending',
+                    updated_at TEXT DEFAULT '',
                     note TEXT DEFAULT '',
                     FOREIGN KEY (raw_input_id) REFERENCES raw_inputs(id)
                 )
                 """
+            )
+            self._ensure_columns(
+                connection,
+                "parsed_records",
+                {
+                    "updated_at": "TEXT DEFAULT ''",
+                    "note": "TEXT DEFAULT ''",
+                },
             )
             connection.commit()
 
@@ -259,6 +268,102 @@ class SQLiteDataPool:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_parsed_records(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        filters = filters or {}
+        query = ["SELECT * FROM parsed_records WHERE 1=1"]
+        params: list[Any] = []
+
+        if confirm_status := filters.get("confirm_status"):
+            if confirm_status != "all":
+                query.append("AND confirm_status = ?")
+                params.append(confirm_status)
+        if project := filters.get("project"):
+            if project != "全部":
+                query.append("AND project = ?")
+                params.append(project)
+        if system_category := filters.get("system_category"):
+            if system_category != "全部":
+                query.append("AND system_category = ?")
+                params.append(system_category)
+        if work_type := filters.get("work_type"):
+            if work_type != "全部":
+                query.append("AND work_type = ?")
+                params.append(work_type)
+        if keyword := str(filters.get("keyword", "")).strip():
+            query.append(
+                """
+                AND (
+                    source_raw_text LIKE ?
+                    OR worker_names LIKE ?
+                    OR wechat_nickname LIKE ?
+                    OR project LIKE ?
+                    OR problem_description LIKE ?
+                    OR solution LIKE ?
+                    OR result LIKE ?
+                )
+                """
+            )
+            keyword_like = f"%{keyword}%"
+            params.extend([keyword_like] * 7)
+
+        query.append("ORDER BY id DESC")
+
+        with self._connect() as connection:
+            rows = connection.execute(" ".join(query), tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_parsed_record(self, record_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM parsed_records WHERE id = ?",
+                (record_id,),
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def get_parsed_record_snapshot(self, record_id: int) -> dict[str, Any] | None:
+        return self.get_parsed_record(record_id)
+
+    def update_parsed_record(self, record_id: int, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+
+        columns = ", ".join(f"{column} = ?" for column in updates)
+        values = list(updates.values()) + [record_id]
+
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE parsed_records SET {columns} WHERE id = ?",
+                values,
+            )
+            connection.commit()
+
+    def update_confirm_status(self, record_id: int, confirm_status: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE parsed_records
+                SET confirm_status = ?
+                WHERE id = ?
+                """,
+                (confirm_status, record_id),
+            )
+            connection.commit()
+
+    def count_parsed_records_by_status(self) -> dict[str, int]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT confirm_status, COUNT(*) AS count
+                FROM parsed_records
+                GROUP BY confirm_status
+                """
+            ).fetchall()
+
+        counts = {"pending": 0, "confirmed": 0, "ignored": 0}
+        for row in rows:
+            counts[str(row["confirm_status"])] = int(row["count"])
+        return counts
+
     def resolve_employee_alias(self, nickname: str) -> str:
         if not nickname.strip():
             return ""
@@ -307,7 +412,25 @@ class SQLiteDataPool:
                 """
             ).fetchone()["count"]
 
+            confirmed_count = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM parsed_records
+                WHERE confirm_status = 'confirmed'
+                """
+            ).fetchone()["count"]
+
+            ignored_count = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM parsed_records
+                WHERE confirm_status = 'ignored'
+                """
+            ).fetchone()["count"]
+
         return {
             "today_record_count": today_record_count,
             "pending_confirmation_count": pending_raw_count + pending_parsed_count,
+            "confirmed_record_count": confirmed_count,
+            "ignored_record_count": ignored_count,
         }

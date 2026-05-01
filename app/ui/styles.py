@@ -45,11 +45,13 @@ QPushButton#SecondaryButton {
 }
 QComboBox#InputBox,
 QLineEdit#InputBox,
-QTextEdit#InputArea {
+QTextEdit#InputArea,
+QPlainTextEdit#InputArea {
     border-radius: 12px;
     padding: 10px 12px;
 }
-QTextEdit#InputArea {
+QTextEdit#InputArea,
+QPlainTextEdit#InputArea {
     padding: 14px;
 }
 QScrollArea {
@@ -128,14 +130,16 @@ QLabel#CardValue {
 }
 QComboBox#InputBox,
 QLineEdit#InputBox,
-QTextEdit#InputArea {
+QTextEdit#InputArea,
+QPlainTextEdit#InputArea {
     background-color: #0F172A;
     border: 1px solid #334155;
     color: #E5E7EB;
 }
 QComboBox#InputBox:focus,
 QLineEdit#InputBox:focus,
-QTextEdit#InputArea:focus {
+QTextEdit#InputArea:focus,
+QPlainTextEdit#InputArea:focus {
     border: 1px solid #3B82F6;
 }
 QPushButton#PrimaryButton {
@@ -227,14 +231,16 @@ QPushButton#NavButton:checked {
 }
 QComboBox#InputBox,
 QLineEdit#InputBox,
-QTextEdit#InputArea {
+QTextEdit#InputArea,
+QPlainTextEdit#InputArea {
     background-color: #FFFFFF;
     border: 1px solid #CBD5E1;
     color: #111827;
 }
 QComboBox#InputBox:focus,
 QLineEdit#InputBox:focus,
-QTextEdit#InputArea:focus {
+QTextEdit#InputArea:focus,
+QPlainTextEdit#InputArea:focus {
     border: 1px solid #2563EB;
 }
 QPushButton#PrimaryButton {

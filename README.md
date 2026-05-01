@@ -40,6 +40,8 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - `parsed_records` 待人工确认表
 - 智能解析 `V0.1`
 - 智能解析页基础列表展示
+- 人工确认页 `V0.1`
+- `corrections.log` 人工修正留痕
 
 ## 多来源输入设计
 
@@ -88,6 +90,31 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 
 当前解析结果写入 `parsed_records`，并默认进入 `confirm_status = pending`，供后续人工确认。
 
+## 人工确认流程
+
+当前系统已形成三层数据流：
+
+- `raw_inputs`：原始输入池，只保留原文，不覆盖
+- `parsed_records`：解析后的结构化待确认记录
+- `confirmed` 记录：后续日报、统计、Excel 导出的可信来源
+
+`parsed_records.confirm_status` 当前支持：
+
+- `pending`
+- `confirmed`
+- `ignored`
+
+人工确认页支持：
+
+- 按确认状态、项目、系统类别、工作类型、关键词筛选
+- 选择记录后在下方表单中编辑关键字段
+- 保存修改
+- 确认为有效记录
+- 忽略该记录
+- 恢复为待确认
+
+所有人工修改和状态流转都会追加写入 `dataset/corrections.log`。
+
 ## 员工网名映射预留
 
 微信昵称不等于真实员工姓名，因此系统已预留 `employee_aliases` 表，用于维护：
@@ -106,6 +133,7 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 不能匹配则保留微信网名
 - 同时标记 `employee_confirm_required = true`
 - 后续人工修正结果可沉淀到 `dataset/corrections.log`
+- 后续统计和导出以 `worker_names` 为准，而不是以微信网名为准
 
 ## 样本管理
 
@@ -129,6 +157,7 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 工作台
 - 数据录入
 - 智能解析
+- 人工确认
 - 数据池
 - 日报生成
 - Excel导出
@@ -137,7 +166,7 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 日志中心
 - 设置
 
-其中“数据录入”“智能解析”“工作台”“设置”已经具备基础可用能力，其余页面仍为占位页。
+其中“工作台”“数据录入”“智能解析”“人工确认”“设置”已经具备基础可用能力，其余页面仍为占位页。
 
 ## 当前项目结构
 
@@ -145,12 +174,14 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 YBKJ-WorkFlow/
 ├─ app/
 │  ├─ ui/
+│  │  ├─ confirm_page.py
 │  │  ├─ data_entry_page.py
 │  │  ├─ main_window.py
 │  │  ├─ parse_page.py
 │  │  └─ styles.py
 │  ├─ backup.py
 │  ├─ config.py
+│  ├─ corrections.py
 │  ├─ database.py
 │  ├─ intake_service.py
 │  ├─ local_config.py
@@ -202,6 +233,7 @@ python3 -m venv .venv
 - 运行日志输出到 `logs/`
 - SQLite 数据库默认位于 `datapool/sqlite/ybkj_workflow.db`
 - 原始输入 JSONL 默认位于 `datapool/jsonl/raw_inputs.jsonl`
+- 人工修正留痕默认位于 `dataset/corrections.log`
 - 企业微信接口默认关闭，不联网
 - `config.local.json`、运行数据库、日志和 JSONL 备份默认不提交到 GitHub
 
@@ -209,13 +241,13 @@ python3 -m venv .venv
 
 - OCR
 - Excel 导出
-- 完整人工确认编辑界面
 - 批量 TXT 导入实际执行逻辑
+- 复杂模型训练
 
 ## 下一步建议
 
-- 完成 parsed_records 人工确认页
 - 增加 employee_aliases 的基础管理界面
 - 为批量 TXT 导入增加任务级入口
-- 将 corrections.log 与人工确认结果联动
-- 为日报和统计分析接入 parsed_records 数据源
+- 将 corrections.log 与规则优化、人工映射维护联动
+- 为 confirmed 记录接入日报、统计和 Excel 导出
+- 在人工确认页补充更细的时间校验和批量操作
