@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,10 @@ EXPORT_HISTORY_DIR = DATAPOOL_DIR / "exports_history"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 REPORTS_DIR = BASE_DIR / "reports"
 DATASET_DIR = BASE_DIR / "dataset"
+SAMPLES_DIR = DATASET_DIR / "samples"
+SCREENSHOTS_RAW_DIR = SAMPLES_DIR / "screenshots_raw"
+TEXT_SAMPLES_DIR = SAMPLES_DIR / "text_samples"
+PARSED_EXPECTED_DIR = SAMPLES_DIR / "parsed_expected"
 MODEL_PACK_DIR = BASE_DIR / "model_pack"
 LOCAL_CONFIG_PATH = BASE_DIR / "config.local.json"
 LOGO_PATH = ASSETS_DIR / "logo.png"
@@ -48,7 +53,7 @@ PROJECT_OPTIONS = [
     "其他",
 ]
 
-SOURCE_TYPES = ("paste", "txt", "manual")
+SOURCE_TYPES = ("paste", "txt", "manual", "screenshot", "batch_txt", "unknown")
 RECORD_STATUSES = ("pending_parse", "parsed", "confirmed", "archived")
 THEMES = ("dark", "light")
 
@@ -67,6 +72,27 @@ def ensure_runtime_directories() -> None:
         OUTPUTS_DIR / "text",
         REPORTS_DIR / "daily",
         REPORTS_DIR / "statistics",
+        SCREENSHOTS_RAW_DIR,
+        TEXT_SAMPLES_DIR,
+        PARSED_EXPECTED_DIR,
     ]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
+
+
+def to_relative_source_path(path_value: str | Path | None) -> str:
+    if not path_value:
+        return ""
+
+    path = Path(path_value)
+    try:
+        return path.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+    except ValueError:
+        return path.name
+    except OSError:
+        return path.as_posix()
+
+
+def safe_row_value(row: dict[str, Any], key: str, default: str = "") -> Any:
+    value = row.get(key, default)
+    return default if value is None else value

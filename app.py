@@ -45,13 +45,13 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     db_path = data_pool.initialize()
     backup_service = JSONLBackupService()
     backup_path = backup_service.initialize_backup_file()
-    parser_engine = ParserEngine()
+    parser_engine = ParserEngine(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
 
     logger.info("Database ready: %s", db_path)
     logger.info("JSONL backup ready: %s", backup_path)
-    logger.info("Parser engine placeholder ready: %s", parser_engine.__class__.__name__)
+    logger.info("Parser engine ready: %s", parser_engine.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
         "data_pool": data_pool,
@@ -83,6 +83,7 @@ def main() -> int:
     window = MainWindow(
         data_pool=services["data_pool"],
         intake_service=services["intake_service"],
+        parser_engine=services["parser_engine"],
         local_config_service=local_config_service,
         initial_theme=initial_theme,
     )

@@ -29,6 +29,8 @@ class DataEntryPage(QFrame):
         self.intake_service = intake_service
         self.logger = logging.getLogger("ybkj_workflow.ui.data_entry")
         self.current_source_type = "paste"
+        self.current_source_name = "粘贴输入"
+        self.current_source_path = ""
         self.setObjectName("PlaceholderCard")
 
         root_layout = QVBoxLayout(self)
@@ -142,6 +144,16 @@ class DataEntryPage(QFrame):
         self.current_source_type = source_type
         self.source_type_label.setText(source_type)
 
+    def set_source_context(
+        self,
+        source_type: str,
+        source_name: str = "",
+        source_path: str = "",
+    ) -> None:
+        self.current_source_name = source_name
+        self.current_source_path = source_path
+        self.set_source_type(source_type)
+
     def append_manual_record(self) -> None:
         manual_text = self.manual_input.text().strip()
         if not manual_text:
@@ -152,7 +164,7 @@ class DataEntryPage(QFrame):
         merged_text = f"{existing_text}\n{manual_text}" if existing_text else manual_text
         self.text_edit.setPlainText(merged_text)
         self.manual_input.clear()
-        self.set_source_type("manual")
+        self.set_source_context("manual", "手动录入", "")
         self.show_feedback("已加入文本区，可继续修改后再提交。")
 
     def import_txt_file(self) -> None:
@@ -179,7 +191,7 @@ class DataEntryPage(QFrame):
             return
 
         self.text_edit.setPlainText(content)
-        self.set_source_type("txt")
+        self.set_source_context("txt", path.name, str(path))
         self.show_feedback(f"已导入 TXT 文件：{path.name}")
 
     def _read_txt_content(self, path: Path) -> str:
@@ -199,6 +211,8 @@ class DataEntryPage(QFrame):
         result = self.intake_service.submit_raw_input(
             operator_name=self.operator_combo.currentText(),
             source_type=self.current_source_type,
+            source_name=self.current_source_name,
+            source_path=self.current_source_path,
             default_project=self.project_combo.currentText(),
             raw_text=raw_text,
         )
@@ -210,7 +224,7 @@ class DataEntryPage(QFrame):
     def clear_inputs(self) -> None:
         self.text_edit.clear()
         self.manual_input.clear()
-        self.set_source_type("paste")
+        self.set_source_context("paste", "粘贴输入", "")
         self.show_feedback("输入内容已清空。")
 
     def show_feedback(self, message: str, *, is_error: bool = False) -> None:

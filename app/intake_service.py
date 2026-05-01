@@ -5,7 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from app.backup import JSONLBackupService
-from app.config import RECORD_STATUSES, SOURCE_TYPES
+from app.config import RECORD_STATUSES, SOURCE_TYPES, to_relative_source_path
 from app.database import SQLiteDataPool
 from app.models import RawInputRecord
 
@@ -24,6 +24,8 @@ class IntakeService:
         self,
         operator_name: str,
         source_type: str,
+        source_name: str,
+        source_path: str,
         default_project: str,
         raw_text: str,
         note: str = "",
@@ -41,6 +43,8 @@ class IntakeService:
             created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             operator_name=(operator_name or "").strip() or "未填写",
             source_type=normalized_source_type,
+            source_name=(source_name or "").strip() or self._default_source_name(normalized_source_type),
+            source_path=to_relative_source_path(source_path),
             default_project=(default_project or "").strip() or "其他",
             raw_text=normalized_text,
             status=normalized_status,
@@ -51,9 +55,11 @@ class IntakeService:
         self.backup_service.append_raw_input(asdict(record))
 
         self.logger.info(
-            "Raw input submitted: id=%s source_type=%s operator=%s project=%s status=%s",
+            "Raw input submitted: id=%s source_type=%s source_name=%s source_path=%s operator=%s project=%s status=%s",
             record_id,
             record.source_type,
+            record.source_name,
+            record.source_path,
             record.operator_name,
             record.default_project,
             record.status,
@@ -64,6 +70,19 @@ class IntakeService:
             "created_at": record.created_at,
             "operator_name": record.operator_name,
             "source_type": record.source_type,
+            "source_name": record.source_name,
+            "source_path": record.source_path,
             "default_project": record.default_project,
             "status": record.status,
         }
+
+    def _default_source_name(self, source_type: str) -> str:
+        source_names = {
+            "paste": "粘贴输入",
+            "txt": "TXT 导入",
+            "manual": "手动录入",
+            "screenshot": "截图 OCR 预留",
+            "batch_txt": "批量 TXT 导入预留",
+            "unknown": "未知来源",
+        }
+        return source_names.get(source_type, "未知来源")

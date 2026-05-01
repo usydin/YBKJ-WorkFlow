@@ -54,6 +54,10 @@ model_pack/versions/*
 config.local.json
 .env
 
+# Local sample images
+dataset/samples/screenshots_raw/*
+!dataset/samples/screenshots_raw/.gitkeep
+
 # IDE
 .idea/
 .vscode/

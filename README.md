@@ -11,11 +11,9 @@
 
 ## 项目简介
 
-YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地智能工作流系统。
+YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智能工作流系统。
 
-本项目用于将微信工作记录、文本记录、人工录入内容等非结构化信息，转化为结构化数据池，并生成每日工作汇报、维修台账、工作量统计、故障类型分析以及 Excel、Word、PDF、TXT 等多格式输出。
-
-本项目不是简单的微信转 Excel 工具，而是面向维保工作的本地数据入口、数据标准和数据资产沉淀系统。
+系统目标不是“微信转 Excel”，而是把微信聊天文本、TXT 文本、手工补录等多来源原始输入统一沉淀到原始输入池，再逐步解析、确认、汇总，最终输出日报、台账、统计分析与多格式导出结果。
 
 ## 基础信息
 
@@ -28,68 +26,118 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地智能工
 - 目标平台：Windows 10/11、macOS
 - 运行原则：本地离线优先
 
-## V1.0 目标
+## 当前阶段重点
 
-第一阶段面向维保部负责每日工作汇总的人员，先完成：
+当前版本已经完成以下基础闭环：
 
-- 粘贴微信文本
-- TXT 导入
-- 手动录入
-- 智能解析
-- 人工校对
-- SQLite 数据池
-- JSONL 备份
-- Excel 导出
-- 日报文本生成
-- 日志留痕
-- corrections.log 修正样本沉淀
+- GUI 基础骨架与深浅主题切换
+- 数据录入页
+- `raw_inputs` 原始输入池入库
+- `JSONL` 原始输入备份
+- 首页基础计数刷新
+- `raw_inputs` 多来源设计扩展
+- `employee_aliases` 员工网名映射预留
+- `parsed_records` 待人工确认表
+- 智能解析 `V0.1`
+- 智能解析页基础列表展示
 
-## 技术路线
+## 多来源输入设计
 
-- GUI：Python + PySide6
-- 数据池：SQLite
-- 备份数据：JSONL
-- 解析引擎：规则词库 + 正则抽取 + 相似度匹配
-- 导出：openpyxl / python-docx
-- 打包：PyInstaller
-- 后续预留：OCR、模型训练、企业微信同步
+`raw_inputs` 被定义为长期原始输入池，而不是围绕截图或 OCR 的临时结构。
 
-## 设计原则
+当前支持或预留的 `source_type`：
 
-1. 本地优先，默认离线运行。
-2. Excel 是输出，不是核心。
-3. 数据池是系统唯一事实来源。
-4. 人工校对结果必须沉淀为训练样本。
-5. 所有关键操作必须留痕。
-6. 企业微信同步作为可选插件，默认关闭。
+- `paste`：粘贴微信聊天文本
+- `txt`：单个 TXT 文件导入
+- `manual`：手动录入
+- `screenshot`：截图 OCR 预留
+- `batch_txt`：批量 TXT 导入预留
+- `unknown`：未知来源
 
-## 当前完成内容
+原始输入至少保留以下字段：
 
-本次已完成 V1.0 beta 第二阶段开发，打通了“数据录入 -> SQLite 入库 -> JSONL 备份 -> 首页计数”的最小闭环：
+- `created_at`
+- `operator_name`
+- `source_type`
+- `source_name`
+- `source_path`
+- `default_project`
+- `raw_text`
+- `status`
+- `note`
 
-- **数据录入页**：支持微信文本粘贴、TXT 文件导入 (.txt)、手动追加单条记录。
-- **业务表第一版**：在 SQLite 中建立了 `raw_inputs` 表，持久化存储原始录入内容及其状态。
-- **JSONL 原始备份**：每次提交录入内容同步追加到 `datapool/jsonl/raw_inputs.jsonl`，确保原始数据不丢失。
-- **首页实时统计**：首页卡片“今日记录数”和“待人工确认数量”已接入 SQLite 实时查询。
-- **统一配置与状态**：在 `app/config.py` 中收敛了项目选项（石炼化、康石等）与记录状态常量。
-- **交互优化**：提交成功后提供轻量级消息提示，支持清空输入与 TXT 导入后二次编辑。
+说明：
+
+- `raw_text` 始终保留完整原文，不在入库阶段覆盖或清洗丢失信息。
+- 解析结果进入 `parsed_records`，不覆盖 `raw_inputs`。
+- `source_path` 仅记录相对路径或文件名，不写死系统绝对路径。
+
+## 智能解析 V0.1
+
+当前解析引擎具备以下基础能力：
+
+- 识别日期：支持 `2026-4-30`、`2026-04-30`
+- 识别时间段：支持 `9:00-17:00`、`15:20-17:00`
+- 初步计算 `duration_hours`
+- 识别完成状态：完成 / 未完成 / 待确认
+- 识别工作类型：安全交底 / 会议类、培训、巡检、测试、维修或维护、其他
+- 识别系统类别：火灾报警、视频监控、其他装置及设备
+- 项目识别：优先使用 `default_project`，并结合文本关键词辅助判断
+- 粗拆分：按日期、编号、时间段、明显工作行进行分段
+- 人员识别：优先使用发送人或操作员，并尝试映射真实姓名
+
+当前解析结果写入 `parsed_records`，并默认进入 `confirm_status = pending`，供后续人工确认。
+
+## 员工网名映射预留
+
+微信昵称不等于真实员工姓名，因此系统已预留 `employee_aliases` 表，用于维护：
+
+- 真实姓名
+- 微信网名
+- 别名
+- 班组
+- 启用状态
+- 创建/更新时间
+- 备注
+
+当前逻辑：
+
+- 能匹配则映射为真实姓名
+- 不能匹配则保留微信网名
+- 同时标记 `employee_confirm_required = true`
+- 后续人工修正结果可沉淀到 `dataset/corrections.log`
+
+## 样本管理
+
+当前样本目录：
+
+- `dataset/samples/screenshots_raw`
+- `dataset/samples/text_samples`
+- `dataset/samples/parsed_expected`
+
+说明：
+
+- `screenshots_raw` 仅用于当前阶段本地视觉参考，不建议提交高清长图到 GitHub
+- 当前主输入路径优先是复制文本、TXT 导入、手动录入
+- 批量 TXT 与截图 OCR 为后续预留路径
+- OCR 不是 `V1.0 beta` 主路径，本轮不实现
 
 ## 当前界面结构
 
 左侧导航当前包含以下模块：
 
-- **工作台**：实时显示今日记录统计。
-- **数据录入**：核心输入端，支持多源数据汇聚。
-- **智能解析**：占位，后续接入自动化解析逻辑。
-- **数据池**：占位，后续接入结构化数据管理。
-- **日报生成**：占位，后续接入多格式报告输出。
-- **Excel导出**：占位。
-- **统计分析**：占位。
-- **模型训练**：占位。
-- **日志中心**：占位。
-- **设置**：占位。
+- 工作台
+- 数据录入
+- 智能解析
+- 数据池
+- 日报生成
+- Excel导出
+- 统计分析
+- 模型训练
+- 日志中心
+- 设置
 
-除工作台外，其余页面当前先提供结构化占位页，用于后续逐步接入功能。
+其中“数据录入”“智能解析”“工作台”“设置”已经具备基础可用能力，其余页面仍为占位页。
 
 ## 当前项目结构
 
@@ -97,85 +145,77 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地智能工
 YBKJ-WorkFlow/
 ├─ app/
 │  ├─ ui/
-│  │  ├─ main_window.py
 │  │  ├─ data_entry_page.py
+│  │  ├─ main_window.py
+│  │  ├─ parse_page.py
 │  │  └─ styles.py
 │  ├─ backup.py
 │  ├─ config.py
 │  ├─ database.py
-│  ├─ exporters.py
 │  ├─ intake_service.py
+│  ├─ local_config.py
 │  ├─ logging_setup.py
 │  ├─ models.py
 │  ├─ parser_engine.py
 │  └─ wecom.py
-├─ assets/
+├─ dataset/
+│  └─ samples/
+│     ├─ screenshots_raw/
+│     ├─ text_samples/
+│     └─ parsed_expected/
 ├─ datapool/
 │  ├─ jsonl/
 │  └─ sqlite/
 ├─ docs/
+├─ logs/
 ├─ outputs/
 ├─ reports/
-├─ logs/
+├─ assets/
 ├─ app.py
 └─ requirements.txt
 ```
 
 ## 启动方式
 
-1. 推荐先创建虚拟环境并安装依赖：
+1. 创建虚拟环境并安装依赖：
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-如果你的环境已经提供可用的 `python` 命令，也可以直接执行：
-
-```bash
-pip install -r requirements.txt
-```
-
 2. 启动程序：
-
-推荐方式：
 
 ```bash
 .venv/bin/python app.py
 ```
 
-通用方式：
-
-```bash
-python app.py
-```
-
-3. 验证源码是否可编译：
-
-推荐方式：
+3. 编译检查：
 
 ```bash
 .venv/bin/python -m compileall .
 ```
 
-通用方式：
-
-```bash
-python -m compileall .
-```
-
 ## 当前运行说明
 
-- 所有运行路径均通过相对项目目录推导，不写死系统绝对路径
-- 日志文件输出到 `logs/`
-- SQLite 数据库默认初始化到 `datapool/sqlite/ybkj_workflow.db`
-- JSONL 备份占位文件默认初始化到 `datapool/exports_history/records_backup.jsonl`
-- 企业微信接口模块默认关闭，不联网
+- 所有运行路径均通过项目目录推导，不写死系统绝对路径
+- 运行日志输出到 `logs/`
+- SQLite 数据库默认位于 `datapool/sqlite/ybkj_workflow.db`
+- 原始输入 JSONL 默认位于 `datapool/jsonl/raw_inputs.jsonl`
+- 企业微信接口默认关闭，不联网
+- `config.local.json`、运行数据库、日志和 JSONL 备份默认不提交到 GitHub
 
-## 下一阶段建议
+## 本轮不实现
 
-- 接入数据录入页表单与文本粘贴区
-- 设计 SQLite 业务表结构与字段映射
-- 完善解析规则、人工确认流程和 corrections 样本沉淀
-- 实现日报文本导出与 Excel 导出
-- 增加日志中心页面的文件浏览与筛选能力
+- OCR
+- Excel 导出
+- 完整人工确认编辑界面
+- 批量 TXT 导入实际执行逻辑
+
+## 下一步建议
+
+- 完成 parsed_records 人工确认页
+- 增加 employee_aliases 的基础管理界面
+- 为批量 TXT 导入增加任务级入口
+- 将 corrections.log 与人工确认结果联动
+- 为日报和统计分析接入 parsed_records 数据源

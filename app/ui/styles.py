@@ -55,6 +55,15 @@ QTextEdit#InputArea {
 QScrollArea {
     border: none;
 }
+QTableWidget {
+    border-radius: 12px;
+    gridline-color: transparent;
+}
+QHeaderView::section {
+    padding: 8px 10px;
+    border: none;
+    font-weight: 600;
+}
 """
 
 DARK_STYLESHEET = """
@@ -145,6 +154,15 @@ QPushButton#SecondaryButton {
 QPushButton#SecondaryButton:hover {
     background-color: #334155;
 }
+QTableWidget {
+    background-color: #0F172A;
+    border: 1px solid #334155;
+    color: #E5E7EB;
+}
+QHeaderView::section {
+    background-color: #1E293B;
+    color: #CBD5E1;
+}
 """
 
 LIGHT_STYLESHEET = """
@@ -234,6 +252,15 @@ QPushButton#SecondaryButton {
 }
 QPushButton#SecondaryButton:hover {
     background-color: #F1F5F9;
+}
+QTableWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    color: #0F172A;
+}
+QHeaderView::section {
+    background-color: #E2E8F0;
+    color: #334155;
 }
 """
 

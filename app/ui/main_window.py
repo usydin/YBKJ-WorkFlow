@@ -26,6 +26,7 @@ from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
 from app.ui.data_entry_page import DataEntryPage
+from app.ui.parse_page import ParsePage
 from app.ui.styles import get_stylesheet
 
 
@@ -121,20 +122,27 @@ class SettingsPage(QFrame):
         title_label = QLabel("设置")
         title_label.setObjectName("PlaceholderTitle")
 
-        desc_label = QLabel("主题设置说明占位页。")
+        desc_label = QLabel("主题设置与员工名单管理入口占位页。")
         desc_label.setWordWrap(True)
         desc_label.setObjectName("PlaceholderDescription")
 
         self.current_theme_label = QLabel()
         self.current_theme_label.setObjectName("MetaText")
 
-        note_label = QLabel("可通过左侧底部按钮切换")
-        note_label.setObjectName("MetaText")
+        theme_note_label = QLabel("可通过左侧底部按钮切换")
+        theme_note_label.setObjectName("MetaText")
+
+        employee_note_label = QLabel(
+            "员工名单管理：当前为预留区，后续将用于维护真实姓名、微信网名、别名与班组映射。"
+        )
+        employee_note_label.setWordWrap(True)
+        employee_note_label.setObjectName("MetaText")
 
         layout.addWidget(title_label)
         layout.addWidget(desc_label)
         layout.addWidget(self.current_theme_label)
-        layout.addWidget(note_label)
+        layout.addWidget(theme_note_label)
+        layout.addWidget(employee_note_label)
         layout.addStretch(1)
 
         self.set_current_theme(current_theme)
@@ -149,12 +157,14 @@ class MainWindow(QMainWindow):
         self,
         data_pool: SQLiteDataPool,
         intake_service: IntakeService,
+        parser_engine,
         local_config_service: LocalConfigService,
         initial_theme: str,
     ) -> None:
         super().__init__()
         self.data_pool = data_pool
         self.intake_service = intake_service
+        self.parser_engine = parser_engine
         self.local_config_service = local_config_service
         self.current_theme = initial_theme
         self.logger = logging.getLogger("ybkj_workflow.ui")
@@ -256,8 +266,11 @@ class MainWindow(QMainWindow):
         self.data_entry_page = DataEntryPage(self.intake_service)
         self.data_entry_page.submitted.connect(self.handle_data_submitted)
         self.stack.addWidget(self._wrap_page(self.data_entry_page))
+        self.parse_page = ParsePage(self.data_pool, self.parser_engine)
+        self.parse_page.parsed.connect(self.handle_parse_completed)
+        self.stack.addWidget(self._wrap_page(self.parse_page))
 
-        for item in NAV_ITEMS[2:-1]:
+        for item in NAV_ITEMS[3:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
         self.settings_page = SettingsPage(self.current_theme)
         self.stack.addWidget(self._wrap_page(self.settings_page))
@@ -379,7 +392,13 @@ class MainWindow(QMainWindow):
 
     def handle_data_submitted(self) -> None:
         self.refresh_dashboard()
+        self.parse_page.refresh_page()
         self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
+
+    def handle_parse_completed(self) -> None:
+        self.refresh_dashboard()
+        self.parse_page.refresh_page()
+        self.statusBar().showMessage("智能解析已执行，结果已写入待人工确认记录。", 3000)
 
     def toggle_theme(self) -> None:
         next_theme = "light" if self.current_theme == "dark" else "dark"
