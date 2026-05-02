@@ -28,6 +28,7 @@ outputs/excel/*
 outputs/word/*
 outputs/pdf/*
 outputs/text/*
+outputs/ocr_text/*.txt
 reports/daily/*
 reports/statistics/*
 reports/quality/*
@@ -39,6 +40,7 @@ datapool/jsonl/*
 !outputs/word/.gitkeep
 !outputs/pdf/.gitkeep
 !outputs/text/.gitkeep
+!outputs/ocr_text/.gitkeep
 !reports/daily/.gitkeep
 !reports/statistics/.gitkeep
 !reports/quality/.gitkeep
@@ -58,8 +60,10 @@ config.local.json
 .env
 
 # Local sample images
-dataset/samples/screenshots_raw/*
-!dataset/samples/screenshots_raw/.gitkeep
+dataset/samples/screenshots_raw/**/*.png
+dataset/samples/screenshots_raw/**/*.jpg
+dataset/samples/screenshots_raw/**/*.jpeg
+!dataset/samples/screenshots_raw/**/.gitkeep
 
 # IDE
 .idea/

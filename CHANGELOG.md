@@ -2,6 +2,13 @@
 
 ## V1.0 beta
 
+### V0.6-local-ocr-research
+
+- OCR 技术验证：建立 `tools/ocr_lab/` 独立验证框架与 `ocr_probe.py` 脚本，支持模拟识别与暂存区写入。
+- 目录规范：新增 `dataset/samples/screenshots_raw/` 与 `outputs/ocr_text/` 目录，并配置严格的 `.gitignore` 规则保护隐私。
+- 技术选型：撰写 `docs/ocr_research/OCR技术选型说明.md`，分析不同 OCR 引擎方案并确立演进路线。
+- 文档同步：更新 `OCR暂存区设计说明.md` 与 `全流程验证说明.md`，记录验证框架定位与使用方式。
+
 ### V0.5-OCR-prep
 
 - OCR 暂存区：新增“OCR 暂存”页面与 `OCRStagingService`，支持手动粘贴截图识别后的文本，提供缓冲层隔离 `raw_inputs`。

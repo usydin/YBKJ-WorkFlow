@@ -48,7 +48,8 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 数据质量检查 `V0.2-flow-check`
 - 日报 TXT / Markdown 导出
 - 员工映射管理页 (CRUD/搜索/状态管理)
-- OCR 暂存区 (V0.5 准备工作，支持手动粘贴与人工审核)
+- OCR 暂存区 (V0.5 准备工作)
+- OCR Lab 验证框架 (V0.6 技术验证与模拟入口)
 
 ## V0.3 真实样例闭环试跑
 
@@ -99,6 +100,17 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - **设计文档**：新增 `docs/OCR暂存区设计说明.md`。
 
 本轮不做真正 OCR，不接入大模型，不安装 OCR 库。
+
+## V0.6 OCR 技术验证准备 (V0.6-local-ocr-research)
+
+`V0.6-local-ocr-research` 聚焦于 OCR 技术选型与独立验证框架的搭建，为后续正式接入 OCR 引擎做准备：
+
+- **目录规范**：建立 `dataset/samples/screenshots_raw/`（原始截图）与 `outputs/ocr_text/`（识别产物）目录。
+- **技术选型**：完成 `docs/ocr_research/OCR技术选型说明.md`，确立“第一阶段手动、后续可选模块”的演进路线。
+- **验证框架**：新增 `tools/ocr_lab/ocr_probe.py` 脚本，支持模拟识别并将结果写入 OCR 暂存区。
+- **隐私保护**：通过 `.gitignore` 严格忽略真实图片与识别文本，确保不提交敏感信息。
+
+本轮不集成真实 OCR 引擎，主流程保持稳定。
 
 ## 当前功能链路
 
