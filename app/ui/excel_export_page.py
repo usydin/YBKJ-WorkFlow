@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
     QMessageBox,
 )
 
@@ -55,6 +54,10 @@ class ExcelExportPage(QFrame):
 
         layout.addWidget(title_label)
         layout.addWidget(desc_label)
+        self.scope_tip_label = QLabel("提示：Excel 台账仅导出已确认记录。")
+        self.scope_tip_label.setObjectName("MetaText")
+        self.scope_tip_label.setWordWrap(True)
+        layout.addWidget(self.scope_tip_label)
         layout.addLayout(self._build_filters())
         layout.addLayout(self._build_stats_cards())
         layout.addWidget(self._build_preview_table(), 1)
@@ -174,9 +177,18 @@ class ExcelExportPage(QFrame):
         filters = self.get_current_filters()
         
         records = self.data_pool.list_confirmed_records_for_report(date_str, filters)
+        pending_count = self.data_pool.count_parsed_records_for_scope(
+            date=date_str,
+            filters=filters,
+            confirm_status="pending",
+        )
         
         self._update_stats(records)
         self._update_table(records)
+        self.scope_tip_label.setText(
+            f"提示：当前筛选范围内可导出记录 {len(records)} 条，待确认记录 {pending_count} 条。"
+            " Excel 仅包含已确认记录，不包含待确认或已忽略记录。"
+        )
 
         if not records:
             self.export_button.setEnabled(False)
@@ -224,7 +236,10 @@ class ExcelExportPage(QFrame):
             QMessageBox.information(
                 self, 
                 "导出成功", 
-                f"Excel 维保台账已生成！\n\n文件路径：{file_path}\n记录条数：{summary['total_count']}"
+                f"Excel 维保台账已生成！\n\n文件路径：{file_path}\n"
+                f"导出记录条数：{summary['total_count']}\n"
+                f"待确认记录：{summary.get('pending_count', 0)}\n"
+                f"是否包含未确认记录：否"
             )
             self.exported.emit(str(file_path))
         except Exception as e:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -34,7 +35,7 @@ class ParserEngine:
             segments = [normalized_text]
 
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return [
+        parsed_records = [
             self._parse_segment(
                 segment,
                 raw_input_id=raw_input_id,
@@ -44,6 +45,8 @@ class ParserEngine:
             )
             for segment in segments
         ]
+        self._mark_duplicate_hints(parsed_records)
+        return parsed_records
 
     def classify_record(self, record: ParsedRecord) -> dict[str, Any]:
         return {
@@ -60,6 +63,7 @@ class ParserEngine:
         pending_inputs = self.data_pool.get_pending_raw_inputs()
         generated_count = 0
         pending_confirm_count = 0
+        parse_warning_count = 0
         parsed_raw_inputs = 0
 
         for raw_input in pending_inputs:
@@ -84,6 +88,9 @@ class ParserEngine:
                 pending_confirm_count += sum(
                     1 for record in parsed_records if record.confirm_status == "pending"
                 )
+                parse_warning_count += sum(
+                    1 for record in parsed_records if "解析提示" in str(record.note or "")
+                )
                 self.data_pool.update_raw_input_status(int(raw_input["id"]), "parsed")
                 parsed_raw_inputs += 1
             except Exception:
@@ -101,6 +108,7 @@ class ParserEngine:
             "raw_inputs_parsed": parsed_raw_inputs,
             "parsed_records_generated": generated_count,
             "pending_confirm_records": pending_confirm_count,
+            "parse_warning_records": parse_warning_count,
         }
 
     def _split_text(self, text: str) -> list[str]:
@@ -147,10 +155,21 @@ class ParserEngine:
         work_type = self._extract_work_type(segment)
         system_category = self._extract_system_category(segment)
         project = self._extract_project(segment, default_project)
+        location = self._extract_location(segment)
         wechat_nickname = self._sanitize_wechat_nickname(self._extract_sender(segment))
         mapping_result = self.data_pool.resolve_worker_names(wechat_nickname)
         worker_names = mapping_result["mapped_names"]
         employee_confirm_required = mapping_result["employee_confirm_required"]
+        parse_note = self._build_parse_note(
+            segment=segment,
+            work_date=work_date,
+            system_category=system_category,
+            work_type=work_type,
+            location=location,
+            wechat_nickname=wechat_nickname,
+            worker_names=worker_names,
+            employee_confirm_required=employee_confirm_required,
+        )
 
         return ParsedRecord(
             raw_input_id=raw_input_id,
@@ -166,12 +185,13 @@ class ParserEngine:
             wechat_nickname=wechat_nickname,
             worker_names=worker_names,
             employee_confirm_required=employee_confirm_required,
+            location=location,
             problem_description=self._extract_problem_description(segment),
             solution=self._extract_solution(segment),
             result=parsed_status,
             source_raw_text=segment,
             confirm_status="pending",
-            note="V0.1 自动解析结果，待人工确认",
+            note=parse_note,
         )
 
     def _create_fallback_record(
@@ -197,7 +217,17 @@ class ParserEngine:
             worker_names=worker_names,
             employee_confirm_required=employee_confirm_required,
             source_raw_text=raw_text,
-            note="拆分失败，已按整段原文生成待确认记录",
+            note=self._build_parse_note(
+                segment=raw_text,
+                work_date="",
+                system_category="",
+                work_type="",
+                location="",
+                wechat_nickname=wechat_nickname,
+                worker_names=worker_names,
+                employee_confirm_required=employee_confirm_required,
+                base_message="拆分失败，已按整段原文生成待确认记录",
+            ),
         )
 
     def _extract_date(self, text: str) -> str:
@@ -240,7 +270,7 @@ class ParserEngine:
             return "测试"
         if any(keyword in text for keyword in ("清理", "更换", "维修", "处理", "恢复")):
             return "维修或维护"
-        return "其他"
+        return ""
 
     def _extract_system_category(self, text: str) -> str:
         fire_keywords = (
@@ -268,7 +298,7 @@ class ParserEngine:
             return "火灾报警"
         if any(keyword in text for keyword in video_keywords):
             return "视频监控"
-        return "其他装置及设备"
+        return ""
 
     def _extract_project(self, text: str, default_project: str) -> str:
         project_keywords = (
@@ -294,6 +324,25 @@ class ParserEngine:
             return ""
         return normalized_nickname
 
+    def _extract_location(self, text: str) -> str:
+        patterns = (
+            r"([\u4e00-\u9fffA-Za-z0-9]+机柜间[A-Za-z0-9]*)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+地下车库[\u4e00-\u9fffA-Za-z0-9]*)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+办公楼\d*层)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+值班室)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+岗亭)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+门岗)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+泵房)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+走廊)",
+            r"([\u4e00-\u9fffA-Za-z0-9]+操场[\u4e00-\u9fffA-Za-z0-9]*)",
+            r"(装置[A-Za-z0-9]+)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return match.group(1).strip()
+        return ""
+
     def _extract_problem_description(self, text: str) -> str:
         for keyword in ("故障", "报警", "异常", "损坏", "不亮", "不通"):
             if keyword in text:
@@ -304,3 +353,111 @@ class ParserEngine:
         if any(keyword in text for keyword in ("更换", "维修", "处理", "恢复", "清理")):
             return text[:160]
         return ""
+
+    def _build_parse_note(
+        self,
+        *,
+        segment: str,
+        work_date: str,
+        system_category: str,
+        work_type: str,
+        location: str,
+        wechat_nickname: str,
+        worker_names: str,
+        employee_confirm_required: bool,
+        base_message: str = "V0.4 自动解析结果，待人工确认",
+    ) -> str:
+        warnings: list[str] = []
+        normalized_segment = str(segment or "").strip()
+        raw_sender = self._extract_sender(normalized_segment)
+
+        if not work_date:
+            warnings.append("缺少日期")
+        if not worker_names:
+            warnings.append("缺少维修人员")
+        elif employee_confirm_required:
+            warnings.append("人员需映射确认")
+        if not location:
+            warnings.append("缺少地点")
+        if not system_category:
+            warnings.append("缺少系统类别")
+        if not work_type:
+            warnings.append("缺少工作类型")
+        if len(re.sub(r"\s+", "", normalized_segment)) < 24:
+            warnings.append("原始文本过短")
+        if re.search(r"(一起|两个人|多人|协助|跟着处理|共同处理|一块处理)", normalized_segment):
+            warnings.append("多人参与但主维修人员不明确")
+        if raw_sender and is_reserved_person_name(raw_sender):
+            warnings.append("出现保留名 ybkj-pL")
+        if raw_sender and not wechat_nickname and is_reserved_person_name(raw_sender):
+            warnings.append("发送人被保留名规则拦截")
+
+        if warnings:
+            return f"{base_message}；解析提示：" + "；".join(dict.fromkeys(warnings))
+        return base_message
+
+    def _mark_duplicate_hints(self, records: list[ParsedRecord]) -> None:
+        if not records:
+            return
+
+        recent_records = self.data_pool.get_recent_parsed_records(limit=200)
+        batch_counter = Counter(self._build_duplicate_signature(record) for record in records)
+        existing_signatures = {
+            self._build_duplicate_signature_from_row(row)
+            for row in recent_records
+            if int(row.get("raw_input_id", 0)) != 0
+        }
+
+        for record in records:
+            signature = self._build_duplicate_signature(record)
+            if not signature:
+                continue
+            is_duplicate = batch_counter[signature] > 1 or signature in existing_signatures
+            if is_duplicate:
+                record.note = self._append_warning(record.note, "疑似重复记录")
+
+    def _build_duplicate_signature(self, record: ParsedRecord) -> str:
+        summary = (
+            record.problem_description.strip()
+            or record.solution.strip()
+            or record.source_raw_text.strip()
+        )
+        normalized_summary = re.sub(r"[\W_]+", "", summary.casefold())
+        if len(normalized_summary) < 8:
+            return ""
+        return "|".join(
+            [
+                record.work_date.strip(),
+                record.project.strip(),
+                record.location.strip(),
+                normalized_summary[:48],
+            ]
+        )
+
+    def _build_duplicate_signature_from_row(self, row: dict[str, Any]) -> str:
+        summary = (
+            str(row.get("problem_description", "")).strip()
+            or str(row.get("solution", "")).strip()
+            or str(row.get("source_raw_text", "")).strip()
+        )
+        normalized_summary = re.sub(r"[\W_]+", "", summary.casefold())
+        if len(normalized_summary) < 8:
+            return ""
+        return "|".join(
+            [
+                str(row.get("work_date", "")).strip(),
+                str(row.get("project", "")).strip(),
+                str(row.get("location", "")).strip(),
+                normalized_summary[:48],
+            ]
+        )
+
+    def _append_warning(self, note: str, warning: str) -> str:
+        normalized_note = str(note or "").strip()
+        if not normalized_note:
+            return f"解析提示：{warning}"
+        if warning in normalized_note:
+            return normalized_note
+        if "解析提示：" in normalized_note:
+            return f"{normalized_note}；{warning}"
+        return f"{normalized_note}；解析提示：{warning}"

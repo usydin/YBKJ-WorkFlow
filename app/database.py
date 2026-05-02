@@ -505,6 +505,26 @@ class SQLiteDataPool:
             rows = connection.execute(" ".join(query), tuple(params)).fetchall()
         return [dict(row) for row in rows]
 
+    def count_parsed_records_for_scope(
+        self,
+        *,
+        date: str | None = None,
+        filters: dict[str, Any] | None = None,
+        confirm_status: str | None = None,
+    ) -> int:
+        query = ["SELECT COUNT(*) FROM parsed_records WHERE 1=1"]
+        params: list[Any] = []
+
+        if confirm_status:
+            query.append("AND confirm_status = ?")
+            params.append(confirm_status)
+
+        self._append_confirmed_record_filters(query, params, filters, exact_date=date)
+
+        with self._connect() as connection:
+            row = connection.execute(" ".join(query), tuple(params)).fetchone()
+        return int(row[0] if row else 0)
+
     def list_confirmed_records_for_analytics(
         self,
         filters: dict[str, Any] | None = None,

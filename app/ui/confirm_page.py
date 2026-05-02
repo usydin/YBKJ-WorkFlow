@@ -210,9 +210,11 @@ class ConfirmPage(QFrame):
         self.system_category_input = QComboBox()
         self.system_category_input.setObjectName("InputBox")
         self.system_category_input.addItems(SYSTEM_CATEGORY_OPTIONS[1:])
+        self.system_category_input.setToolTip("若解析结果为空或不可靠，请人工确认系统类别。")
         self.work_type_input = QComboBox()
         self.work_type_input.setObjectName("InputBox")
         self.work_type_input.addItems(WORK_TYPE_OPTIONS[1:])
+        self.work_type_input.setToolTip("若解析结果为空或仅为规则猜测，请人工确认工作类型。")
         self.status_input = QComboBox()
         self.status_input.setObjectName("InputBox")
         self.status_input.addItems(STATUS_OPTIONS)
@@ -231,6 +233,7 @@ class ConfirmPage(QFrame):
         self.worker_names_input.setPlaceholderText("人员待确认")
         self.location_input = QLineEdit()
         self.location_input.setObjectName("InputBox")
+        self.location_input.setPlaceholderText("地点待补全")
         self.device_or_part_input = QLineEdit()
         self.device_or_part_input.setObjectName("InputBox")
 
@@ -258,6 +261,7 @@ class ConfirmPage(QFrame):
         self.result_input.setObjectName("InputArea")
         self.note_input = QPlainTextEdit()
         self.note_input.setObjectName("InputArea")
+        self.note_input.setPlaceholderText("可保留解析提示，并补充人工确认说明。")
         self.source_raw_text_input = QPlainTextEdit()
         self.source_raw_text_input.setObjectName("InputArea")
         self.source_raw_text_input.setReadOnly(True)
@@ -319,6 +323,7 @@ class ConfirmPage(QFrame):
         self.ignore_button.clicked.connect(self.ignore_record)
         self.restore_button.clicked.connect(self.restore_pending)
         self.refresh_button.clicked.connect(self.refresh_page)
+        self._bind_hint_refresh_events()
         return wrapper
 
     def _build_basic_info_tab(self) -> QWidget:
@@ -330,6 +335,11 @@ class ConfirmPage(QFrame):
         layout.setVerticalSpacing(10)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(3, 1)
+
+        self.parse_note_label = QLabel("解析提示 / 待补全项：请选择一条记录后查看。")
+        self.parse_note_label.setObjectName("MetaText")
+        self.parse_note_label.setWordWrap(True)
+        layout.addWidget(self.parse_note_label, 0, 0, 1, 4)
 
         left_fields = (
             ("日期", self.work_date_input),
@@ -349,14 +359,14 @@ class ConfirmPage(QFrame):
         )
 
         for row, (title, widget) in enumerate(left_fields):
-            layout.addWidget(self._create_form_label(title), row, 0)
-            layout.addWidget(widget, row, 1)
+            layout.addWidget(self._create_form_label(title), row + 1, 0)
+            layout.addWidget(widget, row + 1, 1)
 
         for row, (title, widget) in enumerate(right_fields):
-            layout.addWidget(self._create_form_label(title), row, 2)
-            layout.addWidget(widget, row, 3)
+            layout.addWidget(self._create_form_label(title), row + 1, 2)
+            layout.addWidget(widget, row + 1, 3)
 
-        layout.setRowStretch(len(left_fields), 1)
+        layout.setRowStretch(len(left_fields) + 1, 1)
         return tab
 
     def _build_process_info_tab(self) -> QWidget:
@@ -408,6 +418,23 @@ class ConfirmPage(QFrame):
         widget.setMinimumWidth(180)
         widget.setMinimumHeight(32)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _bind_hint_refresh_events(self) -> None:
+        for widget in (
+            self.work_date_input,
+            self.wechat_nickname_input,
+            self.worker_names_input,
+            self.location_input,
+        ):
+            widget.textChanged.connect(self._refresh_hint_from_editor)
+
+        for widget in (
+            self.system_category_input,
+            self.work_type_input,
+        ):
+            widget.currentTextChanged.connect(self._refresh_hint_from_editor)
+
+        self.note_input.textChanged.connect(self._refresh_hint_from_editor)
 
     def current_filters(self) -> dict[str, Any]:
         confirm_status = self.confirm_status_filter.currentText()
@@ -679,6 +706,7 @@ class ConfirmPage(QFrame):
             "location": self.location_input.text(),
             "employee_confirm_required": employee_confirm_required,
             "source_raw_text": self.source_raw_text_input.toPlainText(),
+            "note": self.note_input.toPlainText(),
         }
 
     def _refresh_record_hint(self, record: dict[str, Any] | None) -> None:
@@ -696,6 +724,8 @@ class ConfirmPage(QFrame):
         wechat_nickname = self._sanitize_wechat_nickname(str(record.get("wechat_nickname", "")))
         source_raw_text = str(record.get("source_raw_text", "")).strip()
         employee_confirm_required = bool(record.get("employee_confirm_required", 0))
+        parse_note = str(record.get("note", "")).strip()
+        parse_note_items = self._extract_parse_note_items(parse_note)
 
         if not work_date:
             issues.append("缺少日期")
@@ -713,16 +743,47 @@ class ConfirmPage(QFrame):
             issues.append("保留名误入维修人员")
         if not wechat_nickname and self._extract_sender_from_text(source_raw_text):
             issues.append("原文可尝试重新映射人员")
+        for item in parse_note_items:
+            if item not in issues:
+                issues.append(item)
 
         if issues:
             self.record_hint_label.setText(
                 "修正提示：" + "；".join(issues) + "。建议优先补全人员、系统类别、工作类型和日期后再确认。"
             )
             self.record_hint_label.setStyleSheet("color: #FCD34D;")
+            self.parse_note_label.setText("解析提示 / 待补全项：" + "；".join(issues))
+            self.parse_note_label.setStyleSheet("color: #FCD34D;")
             return
 
         self.record_hint_label.setText("修正提示：当前记录关键字段基本齐全，可直接保存或确认为有效记录。")
         self.record_hint_label.setStyleSheet("color: #86EFAC;")
+        self.parse_note_label.setText(
+            "解析提示 / 待补全项：当前记录未发现明显缺项。"
+            + (f" 备注：{parse_note}" if parse_note else "")
+        )
+        self.parse_note_label.setStyleSheet("color: #86EFAC;")
+
+    def _extract_parse_note_items(self, note_text: str) -> list[str]:
+        normalized_note = str(note_text or "").strip()
+        known_items = [
+            "缺少维修人员",
+            "缺少地点",
+            "缺少系统类别",
+            "缺少工作类型",
+            "人员需映射确认",
+            "疑似重复记录",
+            "原始文本过短",
+            "多人参与但主维修人员不明确",
+            "出现保留名 ybkj-pL",
+            "发送人被保留名规则拦截",
+        ]
+        return [item for item in known_items if item in normalized_note]
+
+    def _refresh_hint_from_editor(self, *_args: Any) -> None:
+        if self.current_record_id is None:
+            return
+        self._refresh_record_hint(self._current_editor_record_state())
 
     def _format_time_range(self, start_time: str, end_time: str) -> str:
         if start_time and end_time:
@@ -759,6 +820,8 @@ class ConfirmPage(QFrame):
         self.result_input.clear()
         self.note_input.clear()
         self.source_raw_text_input.clear()
+        self.parse_note_label.setText("解析提示 / 待补全项：请选择一条记录后查看。")
+        self.parse_note_label.setStyleSheet("")
         self.record_hint_label.setText("修正提示：请选择一条记录后查看缺字段、人员映射和保留名检查结果。")
         self.record_hint_label.setStyleSheet("")
         self.feedback_label.setText("请选择一条记录进行人工确认。")

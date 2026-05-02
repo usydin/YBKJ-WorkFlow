@@ -195,6 +195,10 @@ class ReportPage(QFrame):
 
         layout.addWidget(preview_title)
         layout.addWidget(self.preview_input, 1)
+        self.scope_tip_label = QLabel("提示：日报仅纳入已确认记录。")
+        self.scope_tip_label.setObjectName("MetaText")
+        self.scope_tip_label.setWordWrap(True)
+        layout.addWidget(self.scope_tip_label)
         layout.addWidget(self.feedback_label)
         return wrapper
 
@@ -244,6 +248,10 @@ class ReportPage(QFrame):
                 "当前筛选条件下没有已确认记录，请先到人工确认页确认记录。"
             )
             self._update_summary_cards(summary)
+            self.scope_tip_label.setText(
+                f"提示：当前筛选范围内已确认记录 0 条，待确认记录 {summary.get('pending_record_count', 0)} 条。"
+                " 未确认记录不会纳入正式日报。"
+            )
             self.feedback_label.setText("当前没有可生成日报的 confirmed 记录。")
             self.feedback_label.setStyleSheet("color: #FCA5A5;")
             return
@@ -251,6 +259,10 @@ class ReportPage(QFrame):
         self.last_report_text = report_text
         self.preview_input.setPlainText(report_text)
         self._update_summary_cards(summary)
+        self.scope_tip_label.setText(
+            f"提示：当前筛选范围内已确认记录 {summary['record_count']} 条，待确认记录 {summary.get('pending_record_count', 0)} 条。"
+            " 报表仅包含已确认记录。"
+        )
         self.feedback_label.setText("日报已生成，可直接复制到企业微信或导出为文本文件。")
         self.feedback_label.setStyleSheet("color: #86EFAC;")
 

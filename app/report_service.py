@@ -53,6 +53,17 @@ class DailyReportService:
             summary = self.build_summary(records)
             summary["date"] = (date or "").strip()
             summary["filters"] = dict(filters)
+            summary["pending_record_count"] = self.data_pool.count_parsed_records_for_scope(
+                date=date,
+                filters=filters,
+                confirm_status="pending",
+            )
+            summary["ignored_record_count"] = self.data_pool.count_parsed_records_for_scope(
+                date=date,
+                filters=filters,
+                confirm_status="ignored",
+            )
+            summary["included_confirmed_only"] = True
 
             report_text = self._compose_report_text(date, filters, records, summary)
             self.logger.info(
@@ -175,6 +186,7 @@ class DailyReportService:
             "",
             "一、今日工作概览",
             f"今日共确认工作记录 {summary['record_count']} 条。",
+            f"当前待确认记录 {summary['pending_record_count']} 条，未纳入正式日报。",
             "其中：",
             f"- 火灾报警：{summary['system_category_counts'].get('火灾报警', 0)} 条",
             f"- 视频监控：{summary['system_category_counts'].get('视频监控', 0)} 条",
@@ -207,10 +219,13 @@ class DailyReportService:
                 "三、待关注事项",
                 f"- 未填写人员记录：{summary['missing_worker_count']} 条",
                 f"- 未填写工时记录：{summary['missing_duration_count']} 条",
+                f"- 当前筛选范围内待确认记录：{summary['pending_record_count']} 条",
+                f"- 当前筛选范围内已忽略记录：{summary['ignored_record_count']} 条",
                 "- 建议人工复核后再对外发送。",
                 "",
                 "四、备注",
                 f"本日报由 {APP_INFO.project_name_en} / {APP_INFO.tool_name} 本地生成。",
+                "- 当前日报仅包含 confirm_status = confirmed 的记录。",
                 f"Developer: {APP_INFO.developer}",
                 f"Version: {APP_INFO.version}",
             ]

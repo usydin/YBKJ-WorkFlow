@@ -79,7 +79,7 @@ class ParsePage(QFrame):
         return wrapper
 
     def _build_table(self) -> QTableWidget:
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels(
             [
                 "日期",
@@ -90,6 +90,7 @@ class ParsePage(QFrame):
                 "时间段",
                 "人员",
                 "待确认",
+                "解析提示",
                 "原始文本摘要",
             ]
         )
@@ -121,6 +122,7 @@ class ParsePage(QFrame):
                 time_range,
                 str(row.get("worker_names", "")),
                 "是" if bool(row.get("employee_confirm_required", 0)) else "否",
+                str(row.get("note", ""))[:120],
                 summary,
             ]
             for column_index, value in enumerate(values):
@@ -139,7 +141,7 @@ class ParsePage(QFrame):
 
         self.feedback_label.setText(
             "解析完成：已处理 {raw_inputs_parsed} 条原始输入，生成 {parsed_records_generated} 条解析记录，"
-            "其中 {pending_confirm_records} 条待人工确认。".format(**summary)
+            "其中 {pending_confirm_records} 条待人工确认，{parse_warning_records} 条带解析提示。".format(**summary)
         )
         self.feedback_label.setStyleSheet("color: #86EFAC;")
         self.refresh_page()

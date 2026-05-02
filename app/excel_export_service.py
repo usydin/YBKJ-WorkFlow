@@ -34,6 +34,17 @@ class ExcelExportService:
         file_path = self.save_workbook(wb, date)
 
         summary = self._calculate_summary(records)
+        summary["pending_count"] = self.data_pool.count_parsed_records_for_scope(
+            date=date,
+            filters=filters,
+            confirm_status="pending",
+        )
+        summary["ignored_count"] = self.data_pool.count_parsed_records_for_scope(
+            date=date,
+            filters=filters,
+            confirm_status="ignored",
+        )
+        summary["includes_pending"] = False
         
         self.logger.info(
             "Excel exported: path=%s, records=%s, date=%s, filters=%s",

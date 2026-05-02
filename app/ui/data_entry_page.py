@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Signal
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from app.config import APP_INFO, PROJECT_OPTIONS
+from app.config import APP_INFO, PROJECT_OPTIONS, TEXT_SAMPLES_DIR
 from app.intake_service import IntakeService
 
 
@@ -45,19 +46,15 @@ class DataEntryPage(QFrame):
         desc_label.setWordWrap(True)
         desc_label.setObjectName("PlaceholderDescription")
 
-        sample_hint_label = QLabel(
-            "可使用 dataset/samples/text_samples/realistic_wechat_records_sample.txt 进行试跑；"
-            "支持直接复制粘贴，也支持通过“导入 TXT”载入样例。"
-        )
-        sample_hint_label.setWordWrap(True)
-        sample_hint_label.setObjectName("MetaText")
+        entry_hint_card = self._build_entry_hint_card()
 
         root_layout.addWidget(title_label)
         root_layout.addWidget(desc_label)
-        root_layout.addWidget(sample_hint_label)
+        root_layout.addWidget(entry_hint_card)
         root_layout.addLayout(self._build_form_row())
         root_layout.addLayout(self._build_manual_row())
         root_layout.addWidget(self._build_text_editor(), 1)
+        root_layout.addLayout(self._build_stats_row())
         root_layout.addLayout(self._build_action_row())
 
     def _build_form_row(self) -> QGridLayout:
@@ -108,9 +105,14 @@ class DataEntryPage(QFrame):
         import_button.setObjectName("SecondaryButton")
         import_button.clicked.connect(self.import_txt_file)
 
+        load_sample_button = QPushButton("载入真实样例")
+        load_sample_button.setObjectName("SecondaryButton")
+        load_sample_button.clicked.connect(self.load_realistic_sample)
+
         layout.addWidget(self.manual_input, 1)
         layout.addWidget(manual_button)
         layout.addWidget(import_button)
+        layout.addWidget(load_sample_button)
         return layout
 
     def _build_text_editor(self) -> QTextEdit:
@@ -119,7 +121,48 @@ class DataEntryPage(QFrame):
             "请粘贴微信工作记录文本，或先导入 TXT 文件；导入后可继续人工修改后再提交。"
         )
         self.text_edit.setObjectName("InputArea")
+        self.text_edit.textChanged.connect(self.update_input_stats)
         return self.text_edit
+
+    def _build_entry_hint_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("DashboardCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(6)
+
+        title_label = QLabel("真实文本试跑提示")
+        title_label.setObjectName("FieldLabel")
+        content_label = QLabel(
+            "可直接粘贴微信群维修记录、日报片段、手工整理文本。\n"
+            "建议一条记录一行，或按自然段分隔。\n"
+            "可使用 dataset/samples/text_samples/realistic_wechat_records_sample.txt 试跑。"
+        )
+        content_label.setObjectName("MetaText")
+        content_label.setWordWrap(True)
+
+        layout.addWidget(title_label)
+        layout.addWidget(content_label)
+        return card
+
+    def _build_stats_row(self) -> QHBoxLayout:
+        layout = QHBoxLayout()
+        layout.setSpacing(16)
+
+        self.char_count_label = QLabel("字符数：0")
+        self.line_count_label = QLabel("行数：0")
+        self.estimated_record_count_label = QLabel("估算记录数：0")
+
+        for label in (
+            self.char_count_label,
+            self.line_count_label,
+            self.estimated_record_count_label,
+        ):
+            label.setObjectName("MetaText")
+            layout.addWidget(label)
+
+        layout.addStretch(1)
+        return layout
 
     def _build_action_row(self) -> QVBoxLayout:
         wrapper = QVBoxLayout()
@@ -202,6 +245,26 @@ class DataEntryPage(QFrame):
         self.set_source_context("txt", path.name, str(path))
         self.show_feedback(f"已导入 TXT 文件：{path.name}")
 
+    def load_realistic_sample(self) -> None:
+        sample_path = TEXT_SAMPLES_DIR / "realistic_wechat_records_sample.txt"
+        if not sample_path.exists():
+            self.show_feedback(
+                "未找到真实样例文件，请检查 dataset/samples/text_samples/realistic_wechat_records_sample.txt。",
+                is_error=True,
+            )
+            return
+
+        try:
+            content = self._read_txt_content(sample_path)
+        except Exception as exc:
+            self.logger.error("Load realistic sample failed: %s", exc)
+            self.show_feedback("载入真实样例失败，请检查文件编码或内容。", is_error=True)
+            return
+
+        self.text_edit.setPlainText(content)
+        self.set_source_context("txt", sample_path.name, str(sample_path))
+        self.show_feedback("已载入真实样例，可继续编辑后再提交到待解析。")
+
     def _read_txt_content(self, path: Path) -> str:
         for encoding in ("utf-8", "utf-8-sig", "gb18030"):
             try:
@@ -234,6 +297,26 @@ class DataEntryPage(QFrame):
         self.manual_input.clear()
         self.set_source_context("paste", "粘贴输入", "")
         self.show_feedback("输入内容已清空。")
+
+    def update_input_stats(self) -> None:
+        text = self.text_edit.toPlainText()
+        stripped_text = text.strip()
+        char_count = len(text)
+        line_count = len([line for line in text.splitlines() if line.strip()])
+        estimated_record_count = self._estimate_record_count(stripped_text)
+
+        self.char_count_label.setText(f"字符数：{char_count}")
+        self.line_count_label.setText(f"行数：{line_count}")
+        self.estimated_record_count_label.setText(f"估算记录数：{estimated_record_count}")
+
+    def _estimate_record_count(self, text: str) -> int:
+        if not text:
+            return 0
+
+        paragraphs = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+        if len(paragraphs) > 1:
+            return len(paragraphs)
+        return len([line for line in text.splitlines() if line.strip()])
 
     def show_feedback(self, message: str, *, is_error: bool = False) -> None:
         color = "#FCA5A5" if is_error else "#86EFAC"

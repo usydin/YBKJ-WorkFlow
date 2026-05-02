@@ -18,7 +18,7 @@ from app.config import (
 from app.database import SQLiteDataPool
 
 
-QUALITY_RULE_VERSION = "V0.3-real-sample-run"
+QUALITY_RULE_VERSION = "V0.4-real-input-polish"
 SEVERITY_ORDER = {"严重": 0, "关注": 1, "提示": 2}
 SEVERITY_WEIGHT = {"严重": 3, "关注": 2, "提示": 1}
 QUALITY_RULE_NOTES = [
@@ -69,6 +69,7 @@ class QualityCheckService:
             "export_readiness": export_readiness_summary,
             "issues": issues,
             "conclusion": conclusion,
+            "todo_guidance": self._build_todo_guidance(issues),
         }
         self.logger.info(
             "Quality check completed: level=%s issues=%s confirmed=%s pending=%s",
@@ -493,6 +494,34 @@ class QualityCheckService:
             "recommended_actions": actions,
         }
 
+    def _build_todo_guidance(self, issues: list[dict[str, Any]]) -> list[str]:
+        guidance: list[str] = []
+        for issue in issues:
+            issue_type = str(issue.get("type", ""))
+            description = str(issue.get("description", ""))
+            if issue_type == "解析记录" and "待确认" in description:
+                guidance.append("请进入人工确认页处理待确认记录，并确认有效记录或忽略重复项。")
+            elif issue_type == "解析记录" and "缺少维修人员" in description:
+                guidance.append("请进入人工确认页补全维修人员；如是微信网名未识别，再进入员工映射页维护映射。")
+            elif issue_type == "员工映射" and "未解析别名" in description:
+                guidance.append("请进入员工映射页维护微信网名、常用别名与真实姓名的关系。")
+            elif issue_type == "解析记录" and "保留名" in description:
+                guidance.append("请进入人工确认页清理保留名，并回查解析规则，避免 ybkj-pL 等名称误入维修人员。")
+            elif issue_type == "解析记录" and "缺少系统类别" in description:
+                guidance.append("请进入人工确认页补全系统类别，避免日报和统计口径失真。")
+            elif issue_type == "解析记录" and "缺少工作类型" in description:
+                guidance.append("请进入人工确认页补全工作类型，确保统计和 Excel 分类准确。")
+            elif issue_type == "解析记录" and "疑似重复" in description:
+                guidance.append("请进入人工确认页核对重复记录，决定保留、修正或忽略。")
+            elif issue_type == "原始输入" and "未解析" in description:
+                guidance.append("请先进入智能解析页处理未解析原始输入，再回到人工确认页做补全。")
+
+        ordered_guidance: list[str] = []
+        for item in guidance:
+            if item not in ordered_guidance:
+                ordered_guidance.append(item)
+        return ordered_guidance
+
     def _count_reserved_name_in_worker_field(self, connection) -> int:
         rows = connection.execute(
             """
@@ -684,6 +713,19 @@ class QualityCheckService:
         )
         for action in conclusion["recommended_actions"]:
             lines.append(f"- {action}")
+
+        lines.extend(
+            [
+                "",
+                "## 待处理指引",
+            ]
+        )
+        todo_guidance = result.get("todo_guidance", [])
+        if todo_guidance:
+            for item in todo_guidance:
+                lines.append(f"- {item}")
+        else:
+            lines.append("- 当前未生成额外待处理指引，可继续执行日报和 Excel 导出。")
 
         lines.extend(
             [

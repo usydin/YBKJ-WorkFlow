@@ -125,6 +125,7 @@ class QualityPage(QFrame):
         layout.addLayout(self._build_header())
         layout.addLayout(self._build_cards())
         layout.addWidget(self._build_rule_notes())
+        layout.addWidget(self._build_todo_guidance())
         layout.addWidget(self._build_issue_table(), 1)
         layout.addLayout(self._build_footer())
 
@@ -264,6 +265,25 @@ class QualityPage(QFrame):
         layout.addWidget(self.issue_table, 1)
         return wrapper
 
+    def _build_todo_guidance(self) -> QWidget:
+        wrapper = QFrame()
+        wrapper.setObjectName("DashboardCard")
+
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        title_label = QLabel("待处理指引")
+        title_label.setObjectName("PlaceholderTitle")
+
+        self.todo_guidance_label = QLabel("待检查后生成处理建议。")
+        self.todo_guidance_label.setObjectName("PlaceholderDescription")
+        self.todo_guidance_label.setWordWrap(True)
+
+        layout.addWidget(title_label)
+        layout.addWidget(self.todo_guidance_label)
+        return wrapper
+
     def _build_rule_notes(self) -> QWidget:
         wrapper = QFrame()
         wrapper.setObjectName("DashboardCard")
@@ -323,6 +343,7 @@ class QualityPage(QFrame):
         self.export_card.update_values(result["export_readiness"])
         self.conclusion_card.update_values(result["conclusion"])
         self._populate_issue_table(result["issues"])
+        self._populate_todo_guidance(result.get("todo_guidance", []))
 
         self.checked_at_label.setText(f"检查时间：{result['checked_at']}")
         self.rule_version_label.setText(f"规则版本：{result['rule_version']}")
@@ -385,6 +406,12 @@ class QualityPage(QFrame):
         self.issue_table.resizeColumnsToContents()
         self.issue_table.setColumnWidth(2, 280)
         self.issue_table.setColumnWidth(4, 360)
+
+    def _populate_todo_guidance(self, guidance: list[str]) -> None:
+        if not guidance:
+            self.todo_guidance_label.setText("当前没有额外待处理指引，可继续进行日报和 Excel 导出。")
+            return
+        self.todo_guidance_label.setText("\n".join(f"{index + 1}. {item}" for index, item in enumerate(guidance)))
 
     def _severity_color(self, level: str) -> QColor | None:
         if level == "严重":
