@@ -26,16 +26,43 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 目标平台：Windows 10/11、macOS
 - 运行原则：本地离线优先，绿色免安装
 
-## 当前阶段重点 (V0.7-packaging-prep)
+## 当前阶段重点 (V0.8-windows-build-test)
 
-当前版本聚焦于 **Windows 绿色版打包收口** 与 **系统架构规范化**：
+当前版本聚焦于 **Windows 打包与真机测试准备**：
 
-- **版本集中化**: 建立 `app/version.py`，全局统一 metadata。
-- **路径规范化**: 引入 `app/path_utils.py`，完美适配 PyInstaller 运行环境。
-- **命令行工具**: 支持 `--version` 与 `--self-check` 静默诊断，方便排查环境问题。
-- **打包自动化**: 提供 `packaging/windows/` 自动化打包方案（Spec & Batch）。
-- **运维与文档**: 补齐 `RUNNING_ARTIFACTS.md`（运行产物说明）与 `WINDOWS_TEST_CHECKLIST.md`（真机测试清单）。
-- **GUI 模块按需加载**: 优化启动响应速度。
+- **打包脚本增强**: 优化 `build_windows.bat` 与 `ybkj_workflow.spec`，确保路径兼容性。
+- **自检逻辑增强**: `--self-check` 增加目录可写性与资源存在性检查。
+- **测试体系建设**: 新增打包测试记录模板与发布目录说明文档。
+- **源码验证**: 在源码模式下完成版本、自检与诊断命令的完整闭环。
+
+> [!WARNING]
+> 当前仍为测试版，不建议在未经现场验证的情况下直接用于正式生产日报汇总。
+
+## 运行与开发
+
+### 源码运行 (推荐开发环境)
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行自检
+python app.py --self-check
+
+# 启动 GUI
+python app.py
+```
+
+### Windows 打包测试
+
+```bash
+# 执行打包脚本 (需在 Windows 环境)
+packaging\windows\build_windows.bat
+
+# 打包后验证
+cd dist\YBKJ-WorkFlow
+YBKJ-WorkFlow.exe --self-check
+```
 
 已完成的基础闭环：
 

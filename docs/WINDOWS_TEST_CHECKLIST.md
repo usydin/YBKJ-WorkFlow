@@ -1,31 +1,32 @@
-# Windows 真机测试清单 (V0.7-packaging-prep)
+# Windows 真机测试清单 (V0.8-windows-build-test)
 
-在发布 Windows 绿色版前，请在目标 Windows 环境（建议 Win10/Win11）执行以下测试流程。
+在发布 Windows 绿色版前，请在目标 Windows 环境（建议 Win10/Win11）执行以下测试流程。详细记录请参考 `docs/WINDOWS_BUILD_TEST_RECORD.md`。
 
-## 1. 基础安装与环境 (Environment)
-- [ ] **纯净环境测试**: 在未安装 Python 的机器上运行，确认是否报错（检查依赖是否打包完整）。
-- [ ] **路径兼容性**: 将文件夹放在包含中文、空格的长路径下（如 `C:\Users\张三\Desktop\My Tools\维保 日报 通\`)，确认能否正常启动。
-- [ ] **权限测试**: 将文件夹放在 `C:\Program Files` (需要管理员权限) 和用户桌面 (普通权限) 分别测试，确认数据库读写是否正常。
+## 0. 打包准备 (Build)
+- [ ] **执行打包**: 运行 `packaging\windows\build_windows.bat`，确认无 Error 退出。
+- [ ] **产物检查**: 确认 `dist\YBKJ-WorkFlow` 目录生成，且包含 `YBKJ-WorkFlow.exe` 及 `_internal` 目录。
 
-## 2. 启动与自检 (CLI & Startup)
-- [ ] **版本查询**: 命令行运行 `维保日报通.exe --version`，确认输出版本号为 `V0.7-packaging-prep`。
-- [ ] **系统自检**: 命令行运行 `维保日报通.exe --self-check`，确认所有项显示 `[OK]`。
-- [ ] **正常启动**: 双击运行，确认 UI 界面正常显示，无白屏或崩溃。
-- [ ] **托盘/任务栏**: 确认任务栏图标显示正常，窗口标题包含正确版本号。
+## 1. 基础环境 (Environment)
+- [ ] **无 Python 环境测试**: 在未安装 Python 的干净机器上运行，确认能否启动。
+- [ ] **路径兼容性**: 测试在中文路径（如 `C:\用户\桌面\维保工具\`) 和含空格路径下运行。
+- [ ] **U盘运行**: 从外部驱动器直接运行，确认自检通过。
 
-## 3. 路径与持久化 (Persistence)
-- [ ] **目录自动生成**: 首次启动后，确认同级目录下自动生成了 `datapool/`, `logs/`, `outputs/` 等目录。
-- [ ] **配置保存**: 修改主题（深色/浅色），关闭并重启应用，确认主题设置已记忆。
-- [ ] **数据库持久化**: 录入一条测试数据，重启应用，确认数据依然存在。
+## 2. 命令行自检 (CLI & Startup)
+- [ ] **版本号确认**: `YBKJ-WorkFlow.exe --version` 确认版本为 `V0.8-windows-build-test`。
+- [ ] **系统自检**: `YBKJ-WorkFlow.exe --self-check` 确认目录权限、资源存在性均为 `[OK]`。
+- [ ] **静默诊断**: `YBKJ-WorkFlow.exe --no-gui-diagnose` 运行无报错。
 
-## 4. 业务流程闭环 (Business Logic)
-- [ ] **样例载入**: 点击“载入真实样例”按钮，确认数据能进入暂存区或主流程。
-- [ ] **解析功能**: 输入一段维保文本，点击解析，确认解析逻辑正常。
-- [ ] **Excel 导出**: 导出记录到 Excel，确认 `outputs/excel/` 下生成了文件，且文件能正常打开。
+## 3. 持久化与资源 (Persistence)
+- [ ] **运行时目录**: 确认 `datapool/`, `logs/`, `outputs/`, `reports/` 自动创建。
+- [ ] **数据库写测试**: 录入一条数据，关闭重启，数据不丢失。
+- [ ] **静态资源**: 确认 UI 中的 Logo 图标正常显示（验证 `get_resource_path` 映射）。
+- [ ] **文档访问**: 确认 `docs/` 目录下的 Markdown 文件在打包后依然可被程序或用户读取。
 
-## 5. 资源文件 (Assets)
-- [ ] **Logo 显示**: 确认左上角 Logo 和关于对话框中的图标正常显示（检查 `_MEIPASS` 路径映射）。
-- [ ] **说明文档**: 确认 `docs/` 下的文档可被程序正确引用或手动打开。
+## 4. 业务功能验证 (Business Logic)
+- [ ] **数据录入**: 成功粘贴 10 条以上维保文本。
+- [ ] **智能解析**: 解析结果准确，且包含“解析提示”。
+- [ ] **Excel 导出**: 成功在 `outputs/excel/` 生成 `.xlsx` 文件且能正常打开。
+- [ ] **质量检查**: 成功生成 `.md` 格式的质量检查报告。
 
 ---
-**测试反馈**: 若发现任何 `PathNotFoundError` 或 `PermissionError`，请记录日志并反馈给开发人员。
+**反馈渠道**: 记录所有失败项于 `WINDOWS_BUILD_TEST_RECORD.md` 的问题记录表中，并附带 `logs/app.log`。

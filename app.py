@@ -34,13 +34,16 @@ def install_exception_hook(logger: logging.Logger) -> None:
 
 def run_self_check(logger: logging.Logger) -> bool:
     """运行系统自检，返回是否通过。"""
+    from app.config import ASSETS_DIR, DOCS_DIR, REPORTS_DIR, OUTPUTS_DIR, DATAPOOL_DIR
+    import os
+
     print(f"\n{'='*20} 系统自检 {'='*20}")
     print(f"应用名称: {version.APP_NAME} ({version.APP_SHORT_NAME})")
     print(f"版本: {version.VERSION}")
     print(f"运行模式: {'打包版 (Frozen)' if is_frozen() else '源码版 (Source)'}")
     print(f"根目录: {get_app_root()}")
     
-    # 检查关键目录
+    # 1. 检查关键目录
     try:
         ensure_runtime_directories()
         print("[OK] 运行时目录检查通过")
@@ -48,7 +51,22 @@ def run_self_check(logger: logging.Logger) -> bool:
         print(f"[ERROR] 运行时目录创建失败: {e}")
         return False
 
-    # 检查数据库
+    # 2. 检查目录可写性
+    for name, path in [("数据池", DATAPOOL_DIR), ("报告", REPORTS_DIR), ("输出", OUTPUTS_DIR)]:
+        if os.access(path, os.W_OK):
+            print(f"[OK] {name}目录可写: {path}")
+        else:
+            print(f"[ERROR] {name}目录不可写: {path}")
+            return False
+
+    # 3. 检查静态资源
+    for name, path in [("Assets", ASSETS_DIR), ("Docs", DOCS_DIR)]:
+        if path.exists():
+            print(f"[OK] {name}资源存在: {path}")
+        else:
+            print(f"[WARN] {name}资源缺失: {path}")
+
+    # 4. 检查数据库
     try:
         from app.database import SQLiteDataPool
         data_pool = SQLiteDataPool()
@@ -58,11 +76,15 @@ def run_self_check(logger: logging.Logger) -> bool:
         print(f"[ERROR] 数据库初始化失败: {e}")
         return False
 
-    # 检查日志
+    # 5. 检查日志
     if LOGS_DIR.exists():
         print(f"[OK] 日志目录正常: {LOGS_DIR}")
     else:
         print("[WARN] 日志目录未创建")
+
+    # 6. 打包建议 (仅源码模式)
+    if not is_frozen():
+        print(f"\n[提示] 源码开发模式，打包脚本位于: packaging/windows/")
 
     print(f"{'='*48}\n")
     return True
@@ -175,31 +197,6 @@ def main() -> int:
     
     window.show()
     return app.exec()
-
-    qt_app = QApplication(sys.argv)
-    qt_app.setApplicationName(APP_INFO.project_name_en)
-    qt_app.setOrganizationName(APP_INFO.developer)
-    qt_app.setStyleSheet(get_stylesheet(initial_theme))
-
-    logger.info("Initial theme: %s", initial_theme)
-    logger.info("Run log file: %s", run_log_path)
-    logger.info("Error log file: %s", error_log_path)
-
-    window = MainWindow(
-        data_pool=services["data_pool"],
-        intake_service=services["intake_service"],
-        parser_engine=services["parser_engine"],
-        corrections_service=services["corrections_service"],
-        ocr_staging_service=services["ocr_staging_service"],
-        report_service=services["report_service"],
-        analytics_service=services["analytics_service"],
-        quality_service=services["quality_service"],
-        excel_export_service=services["excel_export_service"],
-        local_config_service=local_config_service,
-        initial_theme=initial_theme,
-    )
-    window.show()
-    return qt_app.exec()
 
 
 if __name__ == "__main__":

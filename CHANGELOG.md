@@ -2,6 +2,14 @@
 
 ## V1.0 beta
 
+### V0.8-windows-build-test
+
+- 打包脚本增强：重构 `build_windows.bat`，增加 Python/PyInstaller 环境检查、项目根目录自动定位及详细的中午操作提示。
+- Spec 配置优化：更新 `ybkj_workflow.spec`，规范资源包含路径，显式排除运行产物（logs, datapool 等），并为初次打包保留 console 窗口以便排错。
+- 自检逻辑升级：`--self-check` 增加对数据池、报告、输出目录的可写性检查，以及 Assets/Docs 资源的完整性检查。
+- 测试文档体系：新增 `WINDOWS_BUILD_TEST_RECORD.md`（打包测试记录模板）与 `WINDOWS_RELEASE_FOLDER_GUIDE.md`（发布目录说明文档）。
+- 启动代码清理：移除 `app.py` 中冗余的旧版 GUI 启动逻辑，确保代码整洁。
+
 ### V0.7-packaging-prep
 
 - 版本号集中管理：新增 `app/version.py`，统一管理应用名称、版本号、开发者与版权信息，替代原 `config.py` 中的硬编码。
