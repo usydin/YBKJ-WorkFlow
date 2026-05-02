@@ -4,6 +4,7 @@
 
 ## 0. 打包准备 (Build)
 - [ ] **执行打包**: 运行 `packaging\windows\build_windows.bat`，确认无 Error 退出。
+- [ ] **推荐命令打包**: 运行 `python -m PyInstaller packaging\windows\ybkj_workflow.spec --noconfirm --clean`，确认可直接成功打包。
 - [ ] **产物检查**: 确认 `dist\YBKJ-WorkFlow` 目录生成，且包含 `YBKJ-WorkFlow.exe` 及 `_internal` 目录。
 
 ## 1. 基础环境 (Environment)

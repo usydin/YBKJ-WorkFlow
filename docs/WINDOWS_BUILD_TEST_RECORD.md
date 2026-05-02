@@ -27,6 +27,13 @@
 - **是否出现 Missing Module**: 
 - **是否出现路径错误**: 
 
+## 3.1 已验证成功的命令
+- [ ] `python -m PyInstaller packaging\windows\ybkj_workflow.spec --noconfirm --clean`
+- [ ] `dist\YBKJ-WorkFlow\YBKJ-WorkFlow.exe --version`
+- [ ] `dist\YBKJ-WorkFlow\YBKJ-WorkFlow.exe --self-check`
+- [ ] `dist\YBKJ-WorkFlow\YBKJ-WorkFlow.exe --no-gui-diagnose`
+- [ ] `dist\YBKJ-WorkFlow\YBKJ-WorkFlow.exe`
+
 ## 4. 打包后命令行测试
 - [ ] `exe --version`: [ ] 通过 / [ ] 失败
 - [ ] `exe --self-check`: [ ] 通过 / [ ] 失败
@@ -65,6 +72,12 @@
 | 编号 | 问题现象 | 发生环境 | 复现步骤 | 初步判断 | 处理状态 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | 01 | | | | | |
+
+## 9.1 已知问题
+- `QFont::setPointSize: Point size <= 0 (-1), must be greater than 0`
+  - 当前状态: 非阻塞
+  - 影响评估: 当前不影响启动、页面切换、主题切换和正常关闭
+  - 后续动作: 若真机出现字体显示异常，再专项修复样式系统
 
 ## 10. 测试结论
 - [ ] **可进入下一轮**: 所有核心功能在打包后运行正常。

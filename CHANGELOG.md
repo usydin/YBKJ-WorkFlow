@@ -2,6 +2,14 @@
 
 ## V1.0 beta
 
+### V0.8.1-windows-build-fix
+
+- Windows 打包回写：将 Windows 真机临时成功的 `spec` 修复正式回写到仓库，改为使用 `Path.cwd()` 作为项目根目录，并明确要求从项目根目录执行 PyInstaller。
+- Windows 构建脚本修复：重写 `packaging/windows/build_windows.bat` 为纯 ASCII 的稳定 CMD 版本，避免中文编码和特殊字符导致的乱码与命令解析失败。
+- GUI 启动入口确认：保持 `app.py` 中 `MainWindow` 的显式服务注入方式，与 `MainWindow.__init__` 的真实签名一致。
+- 首轮打包实测记录：确认 Windows 11 下源码运行成功，PyInstaller 直接命令打包成功，`dist/YBKJ-WorkFlow/YBKJ-WorkFlow.exe` 的 `--version`、`--self-check`、`--no-gui-diagnose` 和 GUI 启动均通过。
+- 已知非阻塞问题：记录 `QFont::setPointSize: Point size <= 0 (-1)` 为当前已知 UI 警告，暂不阻塞打包，后续若出现真机字体异常再专项处理。
+
 ### V0.8.1-gui-fix
 
 - GUI 启动修复：解决 `app.py` 调用 `MainWindow` 时参数不匹配导致的启动失败问题（TypeError）。

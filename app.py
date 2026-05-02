@@ -8,7 +8,7 @@ import traceback
 from typing import Any
 
 from app import version
-from app.path_utils import is_frozen, get_app_root, get_resource_path
+from app.path_utils import is_frozen, get_app_root
 from app.config import APP_INFO, ensure_runtime_directories, DATABASE_PATH, LOGS_DIR
 from app.local_config import LocalConfigService
 from app.logging_setup import setup_logging
@@ -32,7 +32,7 @@ def install_exception_hook(logger: logging.Logger) -> None:
     sys.excepthook = handle_exception
 
 
-def run_self_check(logger: logging.Logger) -> bool:
+def run_self_check(_logger: logging.Logger) -> bool:
     """运行系统自检，返回是否通过。"""
     from app.config import ASSETS_DIR, DOCS_DIR, REPORTS_DIR, OUTPUTS_DIR, DATAPOOL_DIR
     import os
@@ -160,7 +160,7 @@ def main() -> int:
         print(f"{version.COPYRIGHT}")
         return 0
 
-    logger, run_log_path, error_log_path = setup_logging()
+    logger, _, _ = setup_logging()
     
     if args.self_check or args.no_gui_diagnose:
         success = run_self_check(logger)
