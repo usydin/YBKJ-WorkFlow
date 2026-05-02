@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+from app.config import extract_wechat_sender, is_reserved_person_name
 from app.database import SQLiteDataPool
 from app.models import ParsedRecord
 
@@ -12,8 +13,6 @@ from app.models import ParsedRecord
 class ParserEngine:
     DATE_PATTERN = re.compile(r"(20\d{2})-(\d{1,2})-(\d{1,2})")
     TIME_RANGE_PATTERN = re.compile(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})")
-    SENDER_PATTERN = re.compile(r"^([\u4e00-\u9fffA-Za-z0-9_()（）\-·]{2,20})[:：]")
-
     def __init__(self, data_pool: SQLiteDataPool) -> None:
         self.data_pool = data_pool
         self.logger = logging.getLogger("ybkj_workflow.parser")
@@ -141,16 +140,17 @@ class ParserEngine:
         operator_name: str,
         default_project: str,
     ) -> ParsedRecord:
+        _ = operator_name
         work_date = self._extract_date(segment)
         start_time, end_time, duration_hours = self._extract_time_range(segment)
         parsed_status = self._extract_status(segment)
         work_type = self._extract_work_type(segment)
         system_category = self._extract_system_category(segment)
         project = self._extract_project(segment, default_project)
-        wechat_nickname = self._extract_sender(segment) or operator_name.strip()
-        real_name = self.data_pool.resolve_employee_alias(wechat_nickname)
-        worker_names = real_name or wechat_nickname or operator_name.strip()
-        employee_confirm_required = not bool(real_name)
+        wechat_nickname = self._sanitize_wechat_nickname(self._extract_sender(segment))
+        mapping_result = self.data_pool.resolve_worker_names(wechat_nickname)
+        worker_names = mapping_result["mapped_names"]
+        employee_confirm_required = mapping_result["employee_confirm_required"]
 
         return ParsedRecord(
             raw_input_id=raw_input_id,
@@ -182,14 +182,20 @@ class ParserEngine:
         operator_name: str,
         default_project: str,
     ) -> ParsedRecord:
+        _ = operator_name
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        wechat_nickname = self._sanitize_wechat_nickname(self._extract_sender(raw_text))
+        mapping_result = self.data_pool.resolve_worker_names(wechat_nickname)
+        worker_names = mapping_result["mapped_names"]
+        employee_confirm_required = mapping_result["employee_confirm_required"]
+
         return ParsedRecord(
             raw_input_id=raw_input_id,
             created_at=created_at,
             project=default_project or "其他",
-            wechat_nickname=operator_name,
-            worker_names=operator_name or "待确认",
-            employee_confirm_required=True,
+            wechat_nickname=wechat_nickname,
+            worker_names=worker_names,
+            employee_confirm_required=employee_confirm_required,
             source_raw_text=raw_text,
             note="拆分失败，已按整段原文生成待确认记录",
         )
@@ -280,9 +286,13 @@ class ParserEngine:
         return default_project or "其他"
 
     def _extract_sender(self, text: str) -> str:
-        first_line = text.splitlines()[0].strip() if text.splitlines() else text.strip()
-        match = self.SENDER_PATTERN.match(first_line)
-        return "" if match is None else match.group(1)
+        return extract_wechat_sender(text)
+
+    def _sanitize_wechat_nickname(self, nickname: str) -> str:
+        normalized_nickname = str(nickname or "").strip()
+        if not normalized_nickname or is_reserved_person_name(normalized_nickname):
+            return ""
+        return normalized_nickname
 
     def _extract_problem_description(self, text: str) -> str:
         for keyword in ("故障", "报警", "异常", "损坏", "不亮", "不通"):

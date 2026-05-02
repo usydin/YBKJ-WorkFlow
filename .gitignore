@@ -16,6 +16,7 @@ dist/
 
 # Logs
 logs/*.log
+dataset/corrections.log
 
 # Runtime database
 datapool/sqlite/*.db

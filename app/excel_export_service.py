@@ -7,9 +7,8 @@ from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
-from app.config import APP_INFO, OUTPUTS_DIR
+from app.config import APP_INFO, OUTPUTS_DIR, normalize_worker_names_text, split_worker_names_text
 from app.database import SQLiteDataPool
 
 
@@ -93,7 +92,7 @@ class ExcelExportService:
         self._style_header(ws)
 
         for r in records:
-            worker_names = str(r.get("worker_names", ""))
+            worker_names = normalize_worker_names_text(str(r.get("worker_names", "")))
             person_count = self._estimate_person_count(worker_names)
             
             row = [
@@ -132,7 +131,7 @@ class ExcelExportService:
         self._style_header(ws)
 
         for r in records:
-            worker_names = str(r.get("worker_names", ""))
+            worker_names = normalize_worker_names_text(str(r.get("worker_names", "")))
             person_count = self._estimate_person_count(worker_names)
 
             row = [
@@ -169,7 +168,7 @@ class ExcelExportService:
         self._style_header(ws)
 
         for r in records:
-            worker_names = str(r.get("worker_names", ""))
+            worker_names = normalize_worker_names_text(str(r.get("worker_names", "")))
             person_count = self._estimate_person_count(worker_names)
 
             row = [
@@ -229,12 +228,12 @@ class ExcelExportService:
         person_stats = {}
         missing_hours_count = 0
         for r in records:
-            worker_names = str(r.get("worker_names", "")).strip()
+            worker_names = normalize_worker_names_text(str(r.get("worker_names", "")).strip())
             hours = float(r.get("duration_hours") or 0)
             if float(r.get("duration_hours") or 0) == 0:
                 missing_hours_count += 1
             
-            names = [n.strip() for n in worker_names.replace("，", ",").replace("、", ",").split(",") if n.strip()]
+            names = split_worker_names_text(worker_names)
             if not names:
                 names = ["人员待确认"]
             
@@ -320,21 +319,16 @@ class ExcelExportService:
             ws.column_dimensions[column].width = adjusted_width
 
     def _estimate_person_count(self, worker_names: str) -> int:
-        if not worker_names:
-            return 0
-        delimiters = ["，", "、", ",", " ", "/", ";", "；"]
-        text = worker_names
-        for d in delimiters:
-            text = text.replace(d, ",")
-        names = [n.strip() for n in text.split(",") if n.strip()]
-        return len(names)
+        return len(split_worker_names_text(worker_names))
 
     def _calculate_summary(self, records: list[dict[str, Any]]) -> dict[str, Any]:
         fire_count = sum(1 for r in records if r.get("system_category") == "火灾报警")
         video_count = sum(1 for r in records if r.get("system_category") == "视频监控")
         other_count = len(records) - fire_count - video_count
         total_hours = sum(float(r.get("duration_hours") or 0) for r in records)
-        missing_person_count = sum(1 for r in records if not str(r.get("worker_names", "")).strip())
+        missing_person_count = sum(
+            1 for r in records if not normalize_worker_names_text(str(r.get("worker_names", "")))
+        )
         
         return {
             "total_count": len(records),

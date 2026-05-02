@@ -6,7 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.config import APP_INFO, REPORTS_DIR, ensure_runtime_directories
+from app.config import (
+    APP_INFO,
+    REPORTS_DIR,
+    ensure_runtime_directories,
+    normalize_worker_names_text,
+    split_worker_names_text,
+)
 from app.database import SQLiteDataPool
 
 
@@ -228,6 +234,7 @@ class DailyReportService:
             str(record.get("end_time", "")),
         )
         worker_text = str(record.get("worker_names", "")).strip() or "人员待确认"
+        worker_text = normalize_worker_names_text(worker_text) or "人员待确认"
         project_text = str(record.get("project", "")).strip() or "项目待确认"
         work_type_text = str(record.get("work_type", "")).strip() or "其他"
         result_text = self._display_result(record)
@@ -269,8 +276,7 @@ class DailyReportService:
         return "内容待补充"
 
     def _split_worker_names(self, worker_names: str) -> list[str]:
-        normalized_text = worker_names.replace("，", ",").replace("、", ",")
-        return [item.strip() for item in normalized_text.split(",") if item.strip()]
+        return split_worker_names_text(worker_names)
 
     def _sanitize_date_for_filename(self, date: str) -> str:
         normalized_date = (date or "").strip() or datetime.now().strftime("%Y-%m-%d")

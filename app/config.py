@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -58,6 +59,10 @@ RECORD_STATUSES = ("pending_parse", "parsed", "confirmed", "archived")
 THEMES = ("dark", "light")
 
 APP_INFO = AppInfo()
+WORKER_NAME_SPLIT_PATTERN = re.compile(r"[、，,/\s；;]+")
+SENDER_PREFIX_PATTERN = re.compile(r"^([\u4e00-\u9fffA-Za-z0-9_()（）\-·]{2,20})[:：]")
+CHAT_TIMESTAMP_PATTERN = re.compile(r"^(.+?)\s*\d{1,2}月\d{1,2}日\s+\d{1,2}:\d{2}(?::\d{2})?$")
+LEADING_CJK_NAME_PATTERN = re.compile(r"^([\u4e00-\u9fff]{2,12})")
 
 
 def ensure_runtime_directories() -> None:
@@ -96,3 +101,70 @@ def to_relative_source_path(path_value: str | Path | None) -> str:
 def safe_row_value(row: dict[str, Any], key: str, default: str = "") -> Any:
     value = row.get(key, default)
     return default if value is None else value
+
+
+def is_reserved_person_name(name: str) -> bool:
+    normalized_name = str(name or "").strip().casefold()
+    if not normalized_name:
+        return False
+    return normalized_name == APP_INFO.developer.casefold()
+
+
+def split_worker_names_text(worker_names: str) -> list[str]:
+    normalized_text = str(worker_names or "").strip()
+    if not normalized_text:
+        return []
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in WORKER_NAME_SPLIT_PATTERN.split(normalized_text):
+        normalized_item = item.strip()
+        if not normalized_item or is_reserved_person_name(normalized_item):
+            continue
+        if normalized_item not in seen:
+            values.append(normalized_item)
+            seen.add(normalized_item)
+    return values
+
+
+def normalize_worker_names_text(worker_names: str) -> str:
+    return "、".join(split_worker_names_text(worker_names))
+
+
+def extract_wechat_sender(text: str) -> str:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    first_line = lines[0]
+    match = SENDER_PREFIX_PATTERN.match(first_line)
+    if match:
+        return _normalize_sender_candidate(match.group(1))
+
+    timestamp_match = CHAT_TIMESTAMP_PATTERN.match(first_line)
+    if timestamp_match:
+        return _normalize_sender_candidate(timestamp_match.group(1))
+    return ""
+
+
+def _normalize_sender_candidate(candidate: str) -> str:
+    normalized = str(candidate or "").strip().strip("-:：|")
+    if not normalized:
+        return ""
+
+    for separator in ("（", "(", "【", "["):
+        if separator in normalized:
+            prefix = normalized.split(separator, 1)[0].strip()
+            if len(prefix) >= 2:
+                normalized = prefix
+            break
+
+    cjk_match = LEADING_CJK_NAME_PATTERN.match(normalized)
+    if cjk_match:
+        return cjk_match.group(1).strip()
+
+    normalized = normalized.rstrip(".。·-_ ")
+    token_match = re.match(r"^[A-Za-z0-9_\-·]{2,20}", normalized)
+    if token_match:
+        return token_match.group(0).strip()
+    return normalized[:20].strip()

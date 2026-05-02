@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtWidgets import QApplication
 
 from app.backup import JSONLBackupService
+from app.analytics_service import AnalyticsService
 from app.config import APP_INFO, ensure_runtime_directories
 from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
@@ -46,21 +47,26 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
 
     data_pool = SQLiteDataPool()
     db_path = data_pool.initialize()
+    cleaned_rows = data_pool.cleanup_reserved_person_names()
     backup_service = JSONLBackupService()
     backup_path = backup_service.initialize_backup_file()
     corrections_service = CorrectionsLogService()
     corrections_path = corrections_service.ensure_file()
     parser_engine = ParserEngine(data_pool)
     report_service = DailyReportService(data_pool)
+    analytics_service = AnalyticsService(data_pool)
     excel_export_service = ExcelExportService(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
 
     logger.info("Database ready: %s", db_path)
+    if cleaned_rows:
+        logger.info("Reserved person fields cleaned: %s", cleaned_rows)
     logger.info("JSONL backup ready: %s", backup_path)
     logger.info("Corrections log ready: %s", corrections_path)
     logger.info("Parser engine ready: %s", parser_engine.__class__.__name__)
     logger.info("Report service ready: %s", report_service.__class__.__name__)
+    logger.info("Analytics service ready: %s", analytics_service.__class__.__name__)
     logger.info("Excel export service ready: %s", excel_export_service.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
@@ -69,6 +75,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
         "corrections_service": corrections_service,
         "parser_engine": parser_engine,
         "report_service": report_service,
+        "analytics_service": analytics_service,
         "excel_export_service": excel_export_service,
         "wecom": wecom,
         "intake_service": intake_service,
@@ -99,6 +106,7 @@ def main() -> int:
         parser_engine=services["parser_engine"],
         corrections_service=services["corrections_service"],
         report_service=services["report_service"],
+        analytics_service=services["analytics_service"],
         excel_export_service=services["excel_export_service"],
         local_config_service=local_config_service,
         initial_theme=initial_theme,

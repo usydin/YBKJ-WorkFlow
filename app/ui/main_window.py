@@ -26,9 +26,10 @@ from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
-from app.report_service import DailyReportService
 from app.ui.confirm_page import ConfirmPage
+from app.ui.analytics_page import AnalyticsPage
 from app.ui.data_entry_page import DataEntryPage
+from app.ui.employee_page import EmployeePage
 from app.ui.parse_page import ParsePage
 from app.ui.report_page import ReportPage
 from app.ui.excel_export_page import ExcelExportPage
@@ -43,6 +44,7 @@ NAV_ITEMS = [
     "数据池",
     "日报生成",
     "Excel导出",
+    "员工映射",
     "统计分析",
     "模型训练",
     "日志中心",
@@ -166,6 +168,7 @@ class MainWindow(QMainWindow):
         parser_engine,
         corrections_service: CorrectionsLogService,
         report_service,
+        analytics_service,
         excel_export_service,
         local_config_service: LocalConfigService,
         initial_theme: str,
@@ -176,6 +179,7 @@ class MainWindow(QMainWindow):
         self.parser_engine = parser_engine
         self.corrections_service = corrections_service
         self.report_service = report_service
+        self.analytics_service = analytics_service
         self.excel_export_service = excel_export_service
         self.local_config_service = local_config_service
         self.current_theme = initial_theme
@@ -293,7 +297,12 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._wrap_page(self.report_page))
         self.excel_export_page = ExcelExportPage(self.data_pool, self.excel_export_service)
         self.stack.addWidget(self._wrap_page(self.excel_export_page))
-        for item in NAV_ITEMS[7:-1]:
+        self.employee_page = EmployeePage(self.data_pool)
+        self.stack.addWidget(self._wrap_page(self.employee_page))
+        self.analytics_page = AnalyticsPage(self.analytics_service)
+        self.stack.addWidget(self._wrap_page(self.analytics_page))
+
+        for item in NAV_ITEMS[9:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
         self.settings_page = SettingsPage(self.current_theme)
         self.stack.addWidget(self._wrap_page(self.settings_page))
@@ -431,6 +440,7 @@ class MainWindow(QMainWindow):
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
+        self.analytics_page.refresh_page()
         self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
 
     def handle_parse_completed(self) -> None:
@@ -438,6 +448,7 @@ class MainWindow(QMainWindow):
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
+        self.analytics_page.refresh_page()
         self.statusBar().showMessage("智能解析已执行，结果已写入待人工确认记录。", 3000)
 
     def handle_confirm_updated(self) -> None:
@@ -446,6 +457,7 @@ class MainWindow(QMainWindow):
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
         self.excel_export_page.refresh_page()
+        self.analytics_page.refresh_page()
         self.statusBar().showMessage("人工确认结果已保存并写入 corrections.log。", 3000)
 
     def toggle_theme(self) -> None:

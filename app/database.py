@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.config import DATABASE_PATH, ensure_runtime_directories
+from app.config import (
+    APP_INFO,
+    DATABASE_PATH,
+    ensure_runtime_directories,
+    is_reserved_person_name,
+    normalize_worker_names_text,
+    split_worker_names_text,
+)
 from app.models import ParsedRecord, RawInputRecord
 
 
@@ -132,6 +140,60 @@ class SQLiteDataPool:
 
         self.logger.info("SQLite data pool initialized: %s", self.db_path)
         return self.db_path
+
+    def cleanup_reserved_person_names(self) -> int:
+        updated_rows = 0
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        reserved_name = APP_INFO.developer
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, worker_names, wechat_nickname
+                FROM parsed_records
+                WHERE worker_names LIKE ?
+                   OR TRIM(wechat_nickname) = ?
+                """,
+                (f"%{reserved_name}%", reserved_name),
+            ).fetchall()
+
+            for row in rows:
+                record_id = int(row["id"])
+                current_worker_names = str(row["worker_names"] or "").strip()
+                current_wechat_nickname = str(row["wechat_nickname"] or "").strip()
+                normalized_worker_names = normalize_worker_names_text(current_worker_names)
+                sanitized_wechat_nickname = (
+                    "" if is_reserved_person_name(current_wechat_nickname) else current_wechat_nickname
+                )
+                updates: dict[str, Any] = {}
+
+                if normalized_worker_names != current_worker_names:
+                    updates["worker_names"] = normalized_worker_names
+                    if not normalized_worker_names:
+                        updates["employee_confirm_required"] = 1
+
+                if sanitized_wechat_nickname != current_wechat_nickname:
+                    updates["wechat_nickname"] = sanitized_wechat_nickname
+
+                if updates:
+                    updates["updated_at"] = now
+                    columns = ", ".join(f"{column} = ?" for column in updates)
+                    params = list(updates.values()) + [record_id]
+                    connection.execute(
+                        f"UPDATE parsed_records SET {columns} WHERE id = ?",
+                        params,
+                    )
+                    updated_rows += 1
+
+            connection.commit()
+
+        if updated_rows > 0:
+            self.logger.info(
+                "Reserved person name cleanup applied: reserved_name=%s updated_rows=%s",
+                reserved_name,
+                updated_rows,
+            )
+        return updated_rows
 
     def insert_raw_input(self, record: RawInputRecord) -> int:
         with self._connect() as connection:
@@ -364,19 +426,29 @@ class SQLiteDataPool:
             counts[str(row["confirm_status"])] = int(row["count"])
         return counts
 
-    def list_confirmed_records_for_report(
+    def _append_confirmed_record_filters(
         self,
-        date: str | None = None,
+        query: list[str],
+        params: list[Any],
         filters: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
+        *,
+        exact_date: str | None = None,
+    ) -> None:
         filters = filters or {}
-        query = ["SELECT * FROM parsed_records WHERE confirm_status = 'confirmed'"]
-        params: list[Any] = []
 
-        normalized_date = (date or "").strip()
+        normalized_date = (exact_date or "").strip()
         if normalized_date:
             query.append("AND work_date = ?")
             params.append(normalized_date)
+        else:
+            start_date = str(filters.get("start_date", "")).strip()
+            end_date = str(filters.get("end_date", "")).strip()
+            if start_date:
+                query.append("AND work_date >= ?")
+                params.append(start_date)
+            if end_date:
+                query.append("AND work_date <= ?")
+                params.append(end_date)
 
         if project := str(filters.get("project", "")).strip():
             if project != "全部":
@@ -386,13 +458,37 @@ class SQLiteDataPool:
             if system_category != "全部":
                 query.append("AND system_category = ?")
                 params.append(system_category)
-        if work_type := str(filters.get("work_type", "")).strip():
-            if work_type != "全部":
+
+        work_type = str(filters.get("work_type", "")).strip()
+        if work_type and work_type != "全部":
+            if work_type == "维修":
+                query.append("AND work_type IN (?, ?)")
+                params.extend(["维修", "维修或维护"])
+            elif work_type == "维护":
+                query.append("AND work_type IN (?, ?)")
+                params.extend(["维护", "维修或维护"])
+            elif work_type == "会议":
+                query.append("AND work_type IN (?, ?)")
+                params.extend(["会议", "安全交底 / 会议类"])
+            elif work_type == "安全交底":
+                query.append("AND work_type IN (?, ?)")
+                params.extend(["安全交底", "安全交底 / 会议类"])
+            else:
                 query.append("AND work_type = ?")
                 params.append(work_type)
+
         if worker_names := str(filters.get("worker_names", "")).strip():
             query.append("AND worker_names LIKE ?")
             params.append(f"%{worker_names}%")
+
+    def list_confirmed_records_for_report(
+        self,
+        date: str | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        query = ["SELECT * FROM parsed_records WHERE confirm_status = 'confirmed'"]
+        params: list[Any] = []
+        self._append_confirmed_record_filters(query, params, filters, exact_date=date)
 
         query.append(
             """
@@ -402,6 +498,51 @@ class SQLiteDataPool:
                 CASE WHEN start_time = '' THEN 1 ELSE 0 END ASC,
                 start_time ASC,
                 id ASC
+            """
+        )
+
+        with self._connect() as connection:
+            rows = connection.execute(" ".join(query), tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_confirmed_records_for_analytics(
+        self,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        query = [
+            """
+            SELECT
+                id,
+                work_date,
+                project,
+                system_category,
+                work_type,
+                status,
+                start_time,
+                end_time,
+                duration_hours,
+                worker_names,
+                location,
+                device_or_part,
+                problem_description,
+                solution,
+                result,
+                note,
+                source_raw_text
+            FROM parsed_records
+            WHERE confirm_status = 'confirmed'
+            """
+        ]
+        params: list[Any] = []
+        self._append_confirmed_record_filters(query, params, filters)
+        query.append(
+            """
+            ORDER BY
+                CASE WHEN work_date = '' THEN 1 ELSE 0 END ASC,
+                work_date DESC,
+                CASE WHEN start_time = '' THEN 1 ELSE 0 END ASC,
+                start_time ASC,
+                id DESC
             """
         )
 
@@ -463,17 +604,143 @@ class SQLiteDataPool:
 
         worker_names: set[str] = set()
         for row in worker_rows:
-            raw_names = str(row["worker_names"]).replace("，", ",").replace("、", ",")
-            for item in raw_names.split(","):
-                normalized_name = item.strip()
-                if normalized_name:
-                    worker_names.add(normalized_name)
+            for normalized_name in split_worker_names_text(str(row["worker_names"])):
+                worker_names.add(normalized_name)
 
         return {
             "projects": [str(row["project"]) for row in project_rows],
             "system_categories": [str(row["system_category"]) for row in system_rows],
             "work_types": [str(row["work_type"]) for row in work_type_rows],
             "worker_names": sorted(worker_names),
+        }
+
+    def list_employee_aliases(self, include_inactive: bool = True, keyword: str | None = None) -> list[dict[str, Any]]:
+        query = ["SELECT * FROM employee_aliases WHERE 1=1"]
+        params = []
+        
+        if not include_inactive:
+            query.append("AND is_active = 1")
+            
+        if keyword and keyword.strip():
+            query.append("AND (real_name LIKE ? OR wechat_nickname LIKE ? OR alias LIKE ? OR team LIKE ? OR note LIKE ?)")
+            kw = f"%{keyword.strip()}%"
+            params.extend([kw] * 5)
+            
+        query.append("ORDER BY id DESC")
+        
+        with self._connect() as connection:
+            rows = connection.execute(" ".join(query), tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_employee_alias(self, alias_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM employee_aliases WHERE id = ?", (alias_id,)).fetchone()
+        return dict(row) if row else None
+
+    def create_employee_alias(self, data: dict[str, Any]) -> int:
+        real_name = str(data.get("real_name", "")).strip()
+        if not real_name:
+            raise ValueError("real_name 不能为空")
+            
+        wechat_nickname = str(data.get("wechat_nickname", "")).strip()
+        alias = str(data.get("alias", "")).strip()
+        if not wechat_nickname and not alias:
+            raise ValueError("wechat_nickname 和 alias 至少有一个不为空")
+            
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO employee_aliases (
+                    real_name, wechat_nickname, alias, team, is_active, created_at, updated_at, note
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    real_name,
+                    wechat_nickname,
+                    alias,
+                    str(data.get("team", "")).strip(),
+                    1 if data.get("is_active", True) else 0,
+                    now,
+                    now,
+                    str(data.get("note", "")).strip()
+                )
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update_employee_alias(self, alias_id: int, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+            
+        updates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        columns = ", ".join(f"{k} = ?" for k in updates.keys())
+        params = list(updates.values()) + [alias_id]
+        
+        with self._connect() as connection:
+            connection.execute(f"UPDATE employee_aliases SET {columns} WHERE id = ?", tuple(params))
+            connection.commit()
+
+    def set_employee_alias_active(self, alias_id: int, is_active: bool) -> None:
+        self.update_employee_alias(alias_id, {"is_active": 1 if is_active else 0})
+
+    def delete_employee_alias(self, alias_id: int, physical: bool = False) -> None:
+        with self._connect() as connection:
+            if physical:
+                connection.execute("DELETE FROM employee_aliases WHERE id = ?", (alias_id,))
+            else:
+                connection.execute("UPDATE employee_aliases SET is_active = 0 WHERE id = ?", (alias_id,))
+            connection.commit()
+
+    def resolve_worker_name(self, raw_name: str) -> tuple[str, bool]:
+        """返回 (mapped_name, is_mapped)"""
+        name = raw_name.strip()
+        if not name:
+            return "", False
+        if is_reserved_person_name(name):
+            return "", False
+            
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT real_name FROM employee_aliases 
+                WHERE is_active = 1 
+                AND (real_name = ? OR wechat_nickname = ? OR alias = ?)
+                LIMIT 1
+                """,
+                (name, name, name)
+            ).fetchone()
+            
+        if row:
+            return str(row["real_name"]), True
+        return name, False
+
+    def resolve_worker_names(self, raw_names_text: str) -> dict[str, Any]:
+        if not raw_names_text.strip():
+            return {"mapped_names": "", "unresolved_names": [], "employee_confirm_required": True}
+            
+        raw_list = [n.strip() for n in split_worker_names_text(raw_names_text) if n.strip()]
+        if not raw_list:
+            return {"mapped_names": "", "unresolved_names": [], "employee_confirm_required": True}
+
+        mapped_list = []
+        unresolved = []
+        
+        for name in raw_list:
+            mapped_name, is_mapped = self.resolve_worker_name(name)
+            if mapped_name:
+                mapped_list.append(mapped_name)
+            if not is_mapped:
+                unresolved.append(name)
+                
+        final_mapped = normalize_worker_names_text("、".join(mapped_list))
+                
+        return {
+            "mapped_names": final_mapped,
+            "unresolved_names": unresolved,
+            "employee_confirm_required": len(unresolved) > 0
         }
 
     def resolve_employee_alias(self, nickname: str) -> str:
