@@ -189,7 +189,19 @@ def main() -> int:
     app.setApplicationName(APP_INFO.project_name_cn)
     app.setApplicationVersion(APP_INFO.version)
 
-    window = MainWindow(services)
+    window = MainWindow(
+        data_pool=services["data_pool"],
+        intake_service=services["intake_service"],
+        parser_engine=services["parser_engine"],
+        corrections_service=services["corrections_service"],
+        ocr_staging_service=services["ocr_staging_service"],
+        report_service=services["report_service"],
+        analytics_service=services["analytics_service"],
+        quality_service=services["quality_service"],
+        excel_export_service=services["excel_export_service"],
+        local_config_service=local_config_service,
+        initial_theme=initial_theme,
+    )
     window.setWindowTitle(f"{APP_INFO.tool_name} {APP_INFO.version}")
     
     # 应用主题

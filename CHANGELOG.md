@@ -2,6 +2,11 @@
 
 ## V1.0 beta
 
+### V0.8.1-gui-fix
+
+- GUI 启动修复：解决 `app.py` 调用 `MainWindow` 时参数不匹配导致的启动失败问题（TypeError）。
+- 启动入口对齐：将 `MainWindow` 的初始化方式由传递 `services` 字典改为显式传递各个服务参数，与 `MainWindow.__init__` 签名对齐。
+
 ### V0.8-windows-build-test
 
 - 打包脚本增强：重构 `build_windows.bat`，增加 Python/PyInstaller 环境检查、项目根目录自动定位及详细的中午操作提示。
