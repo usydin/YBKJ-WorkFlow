@@ -45,8 +45,22 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 日报文本生成 `V0.1`
 - Excel 导出 `V0.1`
 - 统计分析 `V0.1`
+- 数据质量检查 `V0.2-flow-check`
 - 日报 TXT / Markdown 导出
 - 员工映射管理页 (CRUD/搜索/状态管理)
+
+## 当前功能链路
+
+当前推荐使用链路如下：
+
+1. 数据录入页提交原始文本，写入 `raw_inputs`。
+2. 智能解析页将 `pending_parse` 数据解析为 `parsed_records`。
+3. 人工确认页核对结构化字段、重新映射人员并确认有效记录。
+4. 员工映射页维护微信网名、别名与真实姓名关系。
+5. 统计分析页基于 `confirmed` 记录查看人员、项目和系统分布。
+6. 日报生成页输出 TXT / Markdown 日报。
+7. Excel 导出页导出多 Sheet 维保台账。
+8. 数据质量页检查原始输入、解析记录、映射质量和导出准备情况。
 
 ## 阶段收尾说明
 
@@ -56,6 +70,7 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - **员工映射闭环**：员工别名管理页、解析阶段自动映射、人工确认页“重新映射人员”按钮已形成联动；`ybkj-pL` 作为保留名继续被拦截，不会写入 `worker_names`。
 - **统计分析可用**：统计分析页已可基于 `confirmed` 记录查看总览卡片、人员统计、项目统计、系统类别统计、工作类型统计与明细记录。
 - **日报与 Excel 导出可用**：日报生成页与 Excel 导出页均基于 `parsed_records.confirm_status = confirmed` 的可信记录工作。
+- **数据质量检查可用**：新增“数据质量”页，可只读检查 `raw_inputs`、`parsed_records`、`employee_aliases` 与导出准备状态，并导出 Markdown 检查报告到 `reports/quality/`。
 - **当前验收命令**：建议在提交前执行 `.venv/bin/python -m compileall .`、`.venv/bin/python app.py`，并验证员工映射示例 `王权富贵 -> 王立彦`、`王权富贵Dr. -> 王立彦`、`ybkj-pL -> 空`。
 
 ## 多来源输入设计
@@ -164,6 +179,18 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - **人员核心字段**：人员统计以 `worker_names` 为准，因此员工映射会直接影响统计准确性。
 - **轻量预留**：后续可扩展柱状图、饼图和趋势分析，当前 V0.1 先以表格统计为主。
 
+## 数据质量检查 V0.2-flow-check
+
+数据质量页以只读方式检查当前闭环是否适合继续演示、统计和导出。
+
+- **原始输入检查**：`raw_inputs` 总数、未解析数量、已解析数量、空文本数量、重复原始文本数量。
+- **解析记录检查**：`parsed_records` 总数、待确认数量、已确认数量、缺少日期/项目或工作内容/系统类别/工作类型/维修人员数量、人员待人工确认数量、保留名误入人员字段数量。
+- **员工映射检查**：员工总数、别名总数、未解析别名数量、一对多疑似冲突数量、已启用员工数量、已停用员工数量。
+- **导出准备检查**：可用于日报和 Excel 导出的记录数量，以及今日、本周、本月记录数量。
+- **综合结论**：输出 `正常 / 需要关注 / 需要处理`，并给出建议动作。
+- **报告导出**：支持导出 Markdown 检查报告到 `reports/quality/quality_check_YYYY-MM-DD_HHMMSS.md`。
+- **只读原则**：检查本身不自动修改数据库内容。
+
 ## 样本管理
 
 当前样本目录：
@@ -192,11 +219,12 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - Excel导出
 - 员工映射
 - 统计分析
+- 数据质量
 - 模型训练
 - 日志中心
 - 设置
 
-其中“工作台”“数据录入”“智能解析”“人工确认”“日报生成”“Excel导出”“员工映射”“统计分析”“设置”已经具备基础可用能力，其余页面仍为占位页。
+其中“工作台”“数据录入”“智能解析”“人工确认”“日报生成”“Excel导出”“员工映射”“统计分析”“数据质量”“设置”已经具备基础可用能力，其余页面仍为占位页。
 
 ## 当前项目结构
 
@@ -211,6 +239,7 @@ YBKJ-WorkFlow/
 │  │  ├─ excel_export_page.py
 │  │  ├─ main_window.py
 │  │  ├─ parse_page.py
+│  │  ├─ quality_page.py
 │  │  ├─ report_page.py
 │  │  └─ styles.py
 │  ├─ analytics_service.py
@@ -223,6 +252,7 @@ YBKJ-WorkFlow/
 │  ├─ logging_setup.py
 │  ├─ models.py
 │  ├─ parser_engine.py
+│  ├─ quality_service.py
 │  ├─ report_service.py
 │  └─ wecom.py
 ├─ dataset/
@@ -271,6 +301,7 @@ python3 -m venv .venv
 - 原始输入 JSONL 默认位于 `datapool/jsonl/raw_inputs.jsonl`
 - 人工修正留痕默认位于 `dataset/corrections.log`
 - 日报导出默认位于 `reports/daily/`
+- 数据质量报告默认位于 `reports/quality/`
 - 企业微信接口默认关闭，不联网
 - `config.local.json`、运行数据库、日志和 JSONL 备份默认不提交到 GitHub
 

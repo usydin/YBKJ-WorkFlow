@@ -30,6 +30,7 @@ JSONL_DIR = DATAPOOL_DIR / "jsonl"
 EXPORT_HISTORY_DIR = DATAPOOL_DIR / "exports_history"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 REPORTS_DIR = BASE_DIR / "reports"
+QUALITY_REPORTS_DIR = REPORTS_DIR / "quality"
 DATASET_DIR = BASE_DIR / "dataset"
 SAMPLES_DIR = DATASET_DIR / "samples"
 SCREENSHOTS_RAW_DIR = SAMPLES_DIR / "screenshots_raw"
@@ -77,6 +78,7 @@ def ensure_runtime_directories() -> None:
         OUTPUTS_DIR / "text",
         REPORTS_DIR / "daily",
         REPORTS_DIR / "statistics",
+        QUALITY_REPORTS_DIR,
         SCREENSHOTS_RAW_DIR,
         TEXT_SAMPLES_DIR,
         PARSED_EXPECTED_DIR,

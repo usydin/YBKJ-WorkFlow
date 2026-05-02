@@ -17,6 +17,7 @@ from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
 from app.logging_setup import setup_logging
 from app.parser_engine import ParserEngine
+from app.quality_service import QualityCheckService
 from app.report_service import DailyReportService
 from app.excel_export_service import ExcelExportService
 from app.ui.main_window import MainWindow
@@ -55,6 +56,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     parser_engine = ParserEngine(data_pool)
     report_service = DailyReportService(data_pool)
     analytics_service = AnalyticsService(data_pool)
+    quality_service = QualityCheckService(data_pool)
     excel_export_service = ExcelExportService(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
@@ -67,6 +69,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     logger.info("Parser engine ready: %s", parser_engine.__class__.__name__)
     logger.info("Report service ready: %s", report_service.__class__.__name__)
     logger.info("Analytics service ready: %s", analytics_service.__class__.__name__)
+    logger.info("Quality service ready: %s", quality_service.__class__.__name__)
     logger.info("Excel export service ready: %s", excel_export_service.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
@@ -76,6 +79,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
         "parser_engine": parser_engine,
         "report_service": report_service,
         "analytics_service": analytics_service,
+        "quality_service": quality_service,
         "excel_export_service": excel_export_service,
         "wecom": wecom,
         "intake_service": intake_service,
@@ -107,6 +111,7 @@ def main() -> int:
         corrections_service=services["corrections_service"],
         report_service=services["report_service"],
         analytics_service=services["analytics_service"],
+        quality_service=services["quality_service"],
         excel_export_service=services["excel_export_service"],
         local_config_service=local_config_service,
         initial_theme=initial_theme,
