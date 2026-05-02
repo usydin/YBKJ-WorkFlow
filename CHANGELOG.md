@@ -2,6 +2,15 @@
 
 ## V1.0 beta
 
+### V0.7-packaging-prep
+
+- 版本号集中管理：新增 `app/version.py`，统一管理应用名称、版本号、开发者与版权信息，替代原 `config.py` 中的硬编码。
+- 路径收口与规范：新增 `app/path_utils.py`，支持 PyInstaller 打包后的 `sys._MEIPASS` 资源映射与 `sys.executable` 运行根目录定位，确保绿色版路径兼容性。
+- 命令行诊断增强：`app.py` 新增 `--version` 与 `--self-check` 参数，支持在无 GUI 环境下验证环境完整性、目录权限与数据库连接。
+- 打包基础设施：新增 `packaging/windows/` 目录，包含 PyInstaller `.spec` 配置文件、一键打包批处理脚本 `.bat`。
+- 运维文档补充：新增 `docs/RUNNING_ARTIFACTS.md`（运行产物说明）与 `docs/WINDOWS_TEST_CHECKLIST.md`（Windows 真机测试清单）。
+- 启动流程重构：`app.py` 实现按需加载 GUI 模块，显著提升命令行工具响应速度并降低无界面环境下的运行门槛。
+
 ### V0.6-local-ocr-research
 
 - OCR 技术验证：建立 `tools/ocr_lab/` 独立验证框架与 `ocr_probe.py` 脚本，支持模拟识别与暂存区写入。

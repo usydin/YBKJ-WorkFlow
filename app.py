@@ -1,29 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import signal
 import sys
 import traceback
 from typing import Any
 
-from PySide6.QtWidgets import QApplication
-
-from app.backup import JSONLBackupService
-from app.analytics_service import AnalyticsService
-from app.config import APP_INFO, ensure_runtime_directories
-from app.corrections import CorrectionsLogService
-from app.database import SQLiteDataPool
-from app.intake_service import IntakeService
+from app import version
+from app.path_utils import is_frozen, get_app_root, get_resource_path
+from app.config import APP_INFO, ensure_runtime_directories, DATABASE_PATH, LOGS_DIR
 from app.local_config import LocalConfigService
 from app.logging_setup import setup_logging
-from app.ocr_staging_service import OCRStagingService
-from app.parser_engine import ParserEngine
-from app.quality_service import QualityCheckService
-from app.report_service import DailyReportService
-from app.excel_export_service import ExcelExportService
-from app.ui.main_window import MainWindow
-from app.ui.styles import get_stylesheet
-from app.wecom import WeComIntegration
 
 
 def install_exception_hook(logger: logging.Logger) -> None:
@@ -44,7 +32,55 @@ def install_exception_hook(logger: logging.Logger) -> None:
     sys.excepthook = handle_exception
 
 
+def run_self_check(logger: logging.Logger) -> bool:
+    """运行系统自检，返回是否通过。"""
+    print(f"\n{'='*20} 系统自检 {'='*20}")
+    print(f"应用名称: {version.APP_NAME} ({version.APP_SHORT_NAME})")
+    print(f"版本: {version.VERSION}")
+    print(f"运行模式: {'打包版 (Frozen)' if is_frozen() else '源码版 (Source)'}")
+    print(f"根目录: {get_app_root()}")
+    
+    # 检查关键目录
+    try:
+        ensure_runtime_directories()
+        print("[OK] 运行时目录检查通过")
+    except Exception as e:
+        print(f"[ERROR] 运行时目录创建失败: {e}")
+        return False
+
+    # 检查数据库
+    try:
+        from app.database import SQLiteDataPool
+        data_pool = SQLiteDataPool()
+        data_pool.initialize()
+        print(f"[OK] 数据库连接正常: {DATABASE_PATH}")
+    except Exception as e:
+        print(f"[ERROR] 数据库初始化失败: {e}")
+        return False
+
+    # 检查日志
+    if LOGS_DIR.exists():
+        print(f"[OK] 日志目录正常: {LOGS_DIR}")
+    else:
+        print("[WARN] 日志目录未创建")
+
+    print(f"{'='*48}\n")
+    return True
+
+
 def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
+    from app.backup import JSONLBackupService
+    from app.analytics_service import AnalyticsService
+    from app.corrections import CorrectionsLogService
+    from app.database import SQLiteDataPool
+    from app.intake_service import IntakeService
+    from app.ocr_staging_service import OCRStagingService
+    from app.parser_engine import ParserEngine
+    from app.quality_service import QualityCheckService
+    from app.report_service import DailyReportService
+    from app.excel_export_service import ExcelExportService
+    from app.wecom import WeComIntegration
+
     ensure_runtime_directories()
 
     data_pool = SQLiteDataPool()
@@ -91,13 +127,54 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=f"{version.APP_NAME} 启动程序")
+    parser.add_argument("--version", "-v", action="store_true", help="显示版本信息")
+    parser.add_argument("--self-check", action="store_true", help="运行系统自检")
+    parser.add_argument("--no-gui-diagnose", action="store_true", help="以无界面模式运行诊断")
+    args = parser.parse_args()
+
+    if args.version:
+        print(f"{version.APP_NAME} {version.VERSION}")
+        print(f"{version.COPYRIGHT}")
+        return 0
+
     logger, run_log_path, error_log_path = setup_logging()
+    
+    if args.self_check or args.no_gui_diagnose:
+        success = run_self_check(logger)
+        if args.self_check:
+            return 0 if success else 1
+        # no-gui-diagnose 继续运行或在此停止取决于需求，目前诊断完即止
+        return 0 if success else 1
+
+    # 仅在需要启动 GUI 时才导入 GUI 相关模块
+    try:
+        from PySide6.QtWidgets import QApplication
+        from app.ui.main_window import MainWindow
+        from app.ui.styles import get_stylesheet
+    except ImportError as e:
+        logger.error("无法加载 GUI 模块 (PySide6)，请检查依赖安装。错误: %s", e)
+        print(f"[ERROR] 无法启动 GUI: {e}")
+        return 1
+
     install_exception_hook(logger)
     services = bootstrap_services(logger)
     local_config_service = LocalConfigService()
     initial_theme = local_config_service.load_theme()
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_INFO.project_name_cn)
+    app.setApplicationVersion(APP_INFO.version)
+
+    window = MainWindow(services)
+    window.setWindowTitle(f"{APP_INFO.tool_name} {APP_INFO.version}")
+    
+    # 应用主题
+    app.setStyleSheet(get_stylesheet(initial_theme))
+    
+    window.show()
+    return app.exec()
 
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName(APP_INFO.project_name_en)

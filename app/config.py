@@ -6,24 +6,31 @@ import re
 from typing import Any
 
 
+from . import version as app_version
+from .path_utils import get_app_root, get_resource_path
+
+
 @dataclass(frozen=True)
 class AppInfo:
-    project_name_cn: str = "友邦维保工作流系统"
-    tool_name: str = "维保日报通"
-    project_name_en: str = "YBKJ-WorkFlow"
-    version: str = "V1.0 beta"
-    developer: str = "ybkj-pL"
-    copyright_text: str = "Copyright © 2026 @B‘lock10STUdio"
+    project_name_cn: str = app_version.APP_NAME
+    tool_name: str = app_version.APP_SHORT_NAME
+    project_name_en: str = app_version.APP_EN_NAME
+    version: str = app_version.VERSION
+    developer: str = app_version.DEVELOPER
+    copyright_text: str = app_version.COPYRIGHT
 
     @property
     def product_line(self) -> str:
         return f"{self.tool_name} · {self.project_name_en}"
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-ASSETS_DIR = BASE_DIR / "assets"
+# 路径收口管理
+BASE_DIR = get_app_root()
+# 静态资源路径（PyInstaller 打包时会打包进 exe，运行时解压到临时目录）
+ASSETS_DIR = get_resource_path("assets")
+DOCS_DIR = get_resource_path("docs")
+# 运行时产物路径（始终相对于 exe/源码根目录，保证数据持久化）
 LOGS_DIR = BASE_DIR / "logs"
-DOCS_DIR = BASE_DIR / "docs"
 DATAPOOL_DIR = BASE_DIR / "datapool"
 SQLITE_DIR = DATAPOOL_DIR / "sqlite"
 JSONL_DIR = DATAPOOL_DIR / "jsonl"
@@ -38,6 +45,7 @@ TEXT_SAMPLES_DIR = SAMPLES_DIR / "text_samples"
 PARSED_EXPECTED_DIR = SAMPLES_DIR / "parsed_expected"
 MODEL_PACK_DIR = BASE_DIR / "model_pack"
 LOCAL_CONFIG_PATH = BASE_DIR / "config.local.json"
+
 LOGO_PATH = ASSETS_DIR / "logo.png"
 DATABASE_PATH = SQLITE_DIR / "ybkj_workflow.db"
 JSONL_BACKUP_PATH = EXPORT_HISTORY_DIR / "records_backup.jsonl"

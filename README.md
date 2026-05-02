@@ -6,8 +6,8 @@
 
 > 友邦维保工作流系统 / 维保日报通  
 > Developer: ybkj-pL  
-> Version: V1.0 beta  
-> Copyright © 2026 @B‘lock10STUdio
+> Version: V0.7-packaging-prep  
+> Copyright © 2026 友邦科技维保部. All rights reserved.
 
 ## 项目简介
 
@@ -20,15 +20,24 @@ YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智
 - 中文名：友邦维保工作流系统
 - 工具名：维保日报通
 - 英文名：YBKJ-WorkFlow
-- 版本：V1.0 beta
+- 版本：V0.7-packaging-prep
 - 开发者：ybkj-pL
-- 版权：© 2026 @B‘lock10STUdio
+- 版权：© 2026 友邦科技维保部. All rights reserved.
 - 目标平台：Windows 10/11、macOS
-- 运行原则：本地离线优先
+- 运行原则：本地离线优先，绿色免安装
 
-## 当前阶段重点
+## 当前阶段重点 (V0.7-packaging-prep)
 
-当前版本已经完成以下基础闭环：
+当前版本聚焦于 **Windows 绿色版打包收口** 与 **系统架构规范化**：
+
+- **版本集中化**: 建立 `app/version.py`，全局统一 metadata。
+- **路径规范化**: 引入 `app/path_utils.py`，完美适配 PyInstaller 运行环境。
+- **命令行工具**: 支持 `--version` 与 `--self-check` 静默诊断，方便排查环境问题。
+- **打包自动化**: 提供 `packaging/windows/` 自动化打包方案（Spec & Batch）。
+- **运维与文档**: 补齐 `RUNNING_ARTIFACTS.md`（运行产物说明）与 `WINDOWS_TEST_CHECKLIST.md`（真机测试清单）。
+- **GUI 模块按需加载**: 优化启动响应速度。
+
+已完成的基础闭环：
 
 - GUI 基础骨架与深浅主题切换
 - 数据录入页
