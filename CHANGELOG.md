@@ -2,6 +2,14 @@
 
 ## V1.0 beta
 
+### V0.3-real-sample-run
+
+- 新增 `dataset/samples/text_samples/realistic_wechat_records_sample.txt`，提供 13 条更贴近微信群口吻的脱敏试跑样例。
+- 新增 `docs/V0.3真实样例闭环试跑说明.md`，整理从录入、解析、人工确认到日报、Excel、统计与数据质量检查的完整试跑步骤。
+- 数据录入页增加试跑提示，明确可直接使用 `realistic_wechat_records_sample.txt` 复制粘贴或导入 `.txt`。
+- 人工确认页增加“修正提示”，可针对缺日期、缺系统类别、缺工作类型、缺地点、缺少维修人员、人员待确认、保留名误入等情况给出快速修正指引。
+- 数据质量检查升级到 `V0.3-real-sample-run`，新增缺少地点、疑似重复解析记录检查，并在页面与 Markdown 报告中增加规则说明小节。
+
 ### V0.2-flow-check
 
 - 新增 `QualityCheckService`，只读检查 `raw_inputs`、`parsed_records`、`employee_aliases` 和导出准备情况。

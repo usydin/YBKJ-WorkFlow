@@ -124,6 +124,7 @@ class QualityPage(QFrame):
 
         layout.addLayout(self._build_header())
         layout.addLayout(self._build_cards())
+        layout.addWidget(self._build_rule_notes())
         layout.addWidget(self._build_issue_table(), 1)
         layout.addLayout(self._build_footer())
 
@@ -198,8 +199,13 @@ class QualityPage(QFrame):
                 "total_count": "总数",
                 "pending_count": "待确认",
                 "confirmed_count": "已确认",
+                "missing_system_category_count": "缺系统类别",
+                "missing_work_type_count": "缺工作类型",
+                "missing_location_count": "缺地点",
                 "missing_worker_count": "缺少维修人员",
                 "worker_confirm_required_count": "人员待确认",
+                "reserved_name_in_worker_count": "保留名误入",
+                "suspicious_duplicate_count": "疑似重复",
             },
         )
         self.employee_card = MetricCard(
@@ -258,6 +264,30 @@ class QualityPage(QFrame):
         layout.addWidget(self.issue_table, 1)
         return wrapper
 
+    def _build_rule_notes(self) -> QWidget:
+        wrapper = QFrame()
+        wrapper.setObjectName("DashboardCard")
+
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        title_label = QLabel("规则说明")
+        title_label.setObjectName("PlaceholderTitle")
+
+        notes_label = QLabel(
+            "1. 保留名规则：ybkj-pL 等开发者/录入者不能作为维修人员。\n"
+            "2. 员工映射规则：微信网名需通过员工映射表转换为真实姓名。\n"
+            "3. 缺字段规则：日期、项目/内容、系统类别、工作类型、维修人员是日报和统计的重要字段。\n"
+            "4. 重复记录规则：文本高度相似或日期/地点/内容相近时提示疑似重复，但不自动删除。"
+        )
+        notes_label.setObjectName("PlaceholderDescription")
+        notes_label.setWordWrap(True)
+
+        layout.addWidget(title_label)
+        layout.addWidget(notes_label)
+        return wrapper
+
     def _build_footer(self) -> QHBoxLayout:
         layout = QHBoxLayout()
         layout.setSpacing(16)
@@ -265,7 +295,7 @@ class QualityPage(QFrame):
         self.checked_at_label = QLabel("检查时间：未执行")
         self.checked_at_label.setObjectName("MetaText")
 
-        self.rule_version_label = QLabel("规则版本：V0.2-flow-check")
+        self.rule_version_label = QLabel("规则版本：V0.3-real-sample-run")
         self.rule_version_label.setObjectName("MetaText")
 
         self.data_source_label = QLabel("数据来源：SQLite")

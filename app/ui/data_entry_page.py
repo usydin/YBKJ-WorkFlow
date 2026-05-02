@@ -45,8 +45,16 @@ class DataEntryPage(QFrame):
         desc_label.setWordWrap(True)
         desc_label.setObjectName("PlaceholderDescription")
 
+        sample_hint_label = QLabel(
+            "可使用 dataset/samples/text_samples/realistic_wechat_records_sample.txt 进行试跑；"
+            "支持直接复制粘贴，也支持通过“导入 TXT”载入样例。"
+        )
+        sample_hint_label.setWordWrap(True)
+        sample_hint_label.setObjectName("MetaText")
+
         root_layout.addWidget(title_label)
         root_layout.addWidget(desc_label)
+        root_layout.addWidget(sample_hint_label)
         root_layout.addLayout(self._build_form_row())
         root_layout.addLayout(self._build_manual_row())
         root_layout.addWidget(self._build_text_editor(), 1)

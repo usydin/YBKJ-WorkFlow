@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,9 +18,15 @@ from app.config import (
 from app.database import SQLiteDataPool
 
 
-QUALITY_RULE_VERSION = "V0.2-flow-check"
+QUALITY_RULE_VERSION = "V0.3-real-sample-run"
 SEVERITY_ORDER = {"严重": 0, "关注": 1, "提示": 2}
 SEVERITY_WEIGHT = {"严重": 3, "关注": 2, "提示": 1}
+QUALITY_RULE_NOTES = [
+    f"保留名规则：{APP_INFO.developer} 等开发者/录入者名称不能作为维修人员。",
+    "员工映射规则：微信网名或别名应通过员工映射表转换为真实姓名。",
+    "缺字段规则：日期、项目/内容、系统类别、工作类型、维修人员是日报和统计的重要字段。",
+    "重复记录规则：文本高度相似，或日期/地点/内容组合接近时，提示疑似重复，但不自动删除。",
+]
 
 
 class QualityCheckService:
@@ -156,6 +163,10 @@ class QualityCheckService:
             connection,
             "SELECT COUNT(*) FROM parsed_records WHERE TRIM(work_type) = ''",
         )
+        missing_location_count = self._fetch_count(
+            connection,
+            "SELECT COUNT(*) FROM parsed_records WHERE TRIM(location) = ''",
+        )
         missing_worker_count = self._fetch_count(
             connection,
             "SELECT COUNT(*) FROM parsed_records WHERE TRIM(worker_names) = ''",
@@ -165,6 +176,7 @@ class QualityCheckService:
             "SELECT COUNT(*) FROM parsed_records WHERE employee_confirm_required = 1",
         )
         reserved_name_in_worker_count = self._count_reserved_name_in_worker_field(connection)
+        suspicious_duplicate_count = self._count_suspected_duplicate_parsed_records(connection)
         return {
             "total_count": total_count,
             "pending_count": pending_count,
@@ -173,9 +185,11 @@ class QualityCheckService:
             "missing_project_or_content_count": missing_project_or_content_count,
             "missing_system_category_count": missing_system_category_count,
             "missing_work_type_count": missing_work_type_count,
+            "missing_location_count": missing_location_count,
             "missing_worker_count": missing_worker_count,
             "worker_confirm_required_count": worker_confirm_required_count,
             "reserved_name_in_worker_count": reserved_name_in_worker_count,
+            "suspicious_duplicate_count": suspicious_duplicate_count,
         }
 
     def _collect_employee_mapping_summary(self, connection) -> dict[str, int]:
@@ -341,6 +355,14 @@ class QualityCheckService:
         )
         self._append_issue(
             issues,
+            level="提示",
+            issue_type="解析记录",
+            count=parsed_records["missing_location_count"],
+            description="存在缺少地点的解析记录",
+            action="建议补全地点，便于排查同类问题和统计分析。",
+        )
+        self._append_issue(
+            issues,
             level="严重",
             issue_type="解析记录",
             count=parsed_records["missing_worker_count"],
@@ -362,6 +384,14 @@ class QualityCheckService:
             count=parsed_records["reserved_name_in_worker_count"],
             description=f"保留名 {APP_INFO.developer} 误入维修人员字段",
             action="请检查解析规则和人工修正逻辑，避免保留名写入 worker_names。",
+        )
+        self._append_issue(
+            issues,
+            level="关注",
+            issue_type="解析记录",
+            count=parsed_records["suspicious_duplicate_count"],
+            description="存在疑似重复解析记录",
+            action="建议按日期、地点和内容核对是否为同一项工作重复上报，不自动删除。",
         )
 
         self._append_issue(
@@ -443,6 +473,10 @@ class QualityCheckService:
             actions.append(
                 f"存在保留名 {APP_INFO.developer} 误入维修人员字段，请检查解析规则。"
             )
+        if parsed_records["suspicious_duplicate_count"] > 0:
+            actions.append(
+                f"存在 {parsed_records['suspicious_duplicate_count']} 条疑似重复解析记录，建议人工核对后保留或忽略。"
+            )
         if export_readiness["report_ready_count"] > 0:
             actions.append(
                 f"当前已有 {export_readiness['report_ready_count']} 条已确认记录，可生成日报和 Excel 报表。"
@@ -473,6 +507,47 @@ class QualityCheckService:
             if any(is_reserved_person_name(name) for name in names):
                 count += 1
         return count
+
+    def _count_suspected_duplicate_parsed_records(self, connection) -> int:
+        rows = connection.execute(
+            """
+            SELECT
+                work_date,
+                project,
+                system_category,
+                location,
+                device_or_part,
+                problem_description,
+                source_raw_text
+            FROM parsed_records
+            WHERE confirm_status <> 'ignored'
+            """
+        ).fetchall()
+
+        signatures: list[str] = []
+        for row in rows:
+            summary_source = (
+                str(row["problem_description"] or "").strip()
+                or str(row["device_or_part"] or "").strip()
+                or str(row["source_raw_text"] or "").strip()
+            )
+            normalized_summary = self._normalize_duplicate_text(summary_source)
+            if len(normalized_summary) < 8:
+                continue
+
+            signature_parts = [
+                str(row["work_date"] or "").strip(),
+                str(row["project"] or "").strip(),
+                str(row["system_category"] or "").strip(),
+                str(row["location"] or "").strip(),
+                normalized_summary[:48],
+            ]
+            signature = "|".join(signature_parts)
+            if signature.replace("|", ""):
+                signatures.append(signature)
+
+        duplicate_groups = Counter(signatures)
+        return sum(group_count - 1 for group_count in duplicate_groups.values() if group_count > 1)
 
     def _count_unresolved_aliases(self, connection, active_name_lookup: set[str]) -> int:
         rows = connection.execute(
@@ -550,9 +625,11 @@ class QualityCheckService:
             f"- 缺少项目/工作内容数量：{parsed_records['missing_project_or_content_count']}",
             f"- 缺少系统类别数量：{parsed_records['missing_system_category_count']}",
             f"- 缺少工作类型数量：{parsed_records['missing_work_type_count']}",
+            f"- 缺少地点数量：{parsed_records['missing_location_count']}",
             f"- 缺少维修人员数量：{parsed_records['missing_worker_count']}",
             f"- 维修人员需要人工确认数量：{parsed_records['worker_confirm_required_count']}",
             f"- 保留名误入维修人员字段数量：{parsed_records['reserved_name_in_worker_count']}",
+            f"- 疑似重复解析记录数量：{parsed_records['suspicious_duplicate_count']}",
             "",
             "## 员工映射摘要",
             f"- 员工总数：{employee_mapping['employee_total_count']}",
@@ -569,8 +646,16 @@ class QualityCheckService:
             f"- 本周记录数量：{export_readiness['week_count']}",
             f"- 本月记录数量：{export_readiness['month_count']}",
             "",
-            "## 问题清单",
+            "## 规则说明",
         ]
+        lines.extend(f"- {rule_note}" for rule_note in QUALITY_RULE_NOTES)
+
+        lines.extend(
+            [
+                "",
+            "## 问题清单",
+            ]
+        )
 
         if issues:
             lines.extend(
@@ -611,6 +696,11 @@ class QualityCheckService:
             ]
         )
         return "\n".join(lines) + "\n"
+
+    def _normalize_duplicate_text(self, text: str) -> str:
+        normalized = str(text or "").strip().casefold()
+        normalized = re.sub(r"[\W_]+", "", normalized)
+        return normalized
 
     def _fetch_count(self, connection, query: str) -> int:
         row = connection.execute(query).fetchone()

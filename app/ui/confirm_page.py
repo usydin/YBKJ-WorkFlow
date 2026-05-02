@@ -197,6 +197,11 @@ class ConfirmPage(QFrame):
         editor_title.setObjectName("PlaceholderTitle")
         layout.addWidget(editor_title)
 
+        self.record_hint_label = QLabel("修正提示：请选择一条记录后查看缺字段、人员映射和保留名检查结果。")
+        self.record_hint_label.setObjectName("MetaText")
+        self.record_hint_label.setWordWrap(True)
+        layout.addWidget(self.record_hint_label)
+
         self.work_date_input = QLineEdit()
         self.work_date_input.setObjectName("InputBox")
         self.project_input = QComboBox()
@@ -503,6 +508,7 @@ class ConfirmPage(QFrame):
                 feedback_color = "color: #93C5FD;"
         self.feedback_label.setText(feedback_text)
         self.feedback_label.setStyleSheet(feedback_color)
+        self._refresh_record_hint(record)
 
     def run_worker_mapping(self) -> None:
         if self.current_record_id is None:
@@ -535,11 +541,13 @@ class ConfirmPage(QFrame):
             else:
                 self.feedback_label.setText("人员重新映射成功，已填入真实姓名。")
                 self.feedback_label.setStyleSheet("color: #86EFAC;")
+            self._refresh_record_hint(self._current_editor_record_state())
             return
 
         self.worker_names_input.clear()
         self.feedback_label.setText("未在员工映射表中找到对应人员，已清空错误人员值。")
         self.feedback_label.setStyleSheet("color: #FCA5A5;")
+        self._refresh_record_hint(self._current_editor_record_state())
 
     def _collect_updates(self) -> dict[str, Any]:
         wechat_nickname = self._sanitize_wechat_nickname(self.wechat_nickname_input.text())
@@ -655,6 +663,67 @@ class ConfirmPage(QFrame):
             summary_text = str(row.get("source_raw_text", "")).replace("\n", " ").strip()
         return summary_text[:120]
 
+    def _current_editor_record_state(self) -> dict[str, Any]:
+        current_worker_names = normalize_worker_names_text(self.worker_names_input.text())
+        employee_confirm_required = True
+        if current_worker_names:
+            employee_confirm_required = self.data_pool.resolve_worker_names(current_worker_names)[
+                "employee_confirm_required"
+            ]
+        return {
+            "work_date": self.work_date_input.text(),
+            "system_category": self.system_category_input.currentText(),
+            "work_type": self.work_type_input.currentText(),
+            "worker_names": current_worker_names,
+            "wechat_nickname": self.wechat_nickname_input.text(),
+            "location": self.location_input.text(),
+            "employee_confirm_required": employee_confirm_required,
+            "source_raw_text": self.source_raw_text_input.toPlainText(),
+        }
+
+    def _refresh_record_hint(self, record: dict[str, Any] | None) -> None:
+        if not record:
+            self.record_hint_label.setText("修正提示：请选择一条记录后查看缺字段、人员映射和保留名检查结果。")
+            self.record_hint_label.setStyleSheet("")
+            return
+
+        issues: list[str] = []
+        work_date = str(record.get("work_date", "")).strip()
+        system_category = str(record.get("system_category", "")).strip()
+        work_type = str(record.get("work_type", "")).strip()
+        worker_names = normalize_worker_names_text(str(record.get("worker_names", "")))
+        location = str(record.get("location", "")).strip()
+        wechat_nickname = self._sanitize_wechat_nickname(str(record.get("wechat_nickname", "")))
+        source_raw_text = str(record.get("source_raw_text", "")).strip()
+        employee_confirm_required = bool(record.get("employee_confirm_required", 0))
+
+        if not work_date:
+            issues.append("缺少日期")
+        if not system_category:
+            issues.append("缺少系统类别")
+        if not work_type:
+            issues.append("缺少工作类型")
+        if not worker_names:
+            issues.append("缺少维修人员")
+        elif employee_confirm_required:
+            issues.append("维修人员待确认")
+        if not location:
+            issues.append("缺少地点")
+        if any(is_reserved_person_name(name) for name in worker_names.split("、") if name):
+            issues.append("保留名误入维修人员")
+        if not wechat_nickname and self._extract_sender_from_text(source_raw_text):
+            issues.append("原文可尝试重新映射人员")
+
+        if issues:
+            self.record_hint_label.setText(
+                "修正提示：" + "；".join(issues) + "。建议优先补全人员、系统类别、工作类型和日期后再确认。"
+            )
+            self.record_hint_label.setStyleSheet("color: #FCD34D;")
+            return
+
+        self.record_hint_label.setText("修正提示：当前记录关键字段基本齐全，可直接保存或确认为有效记录。")
+        self.record_hint_label.setStyleSheet("color: #86EFAC;")
+
     def _format_time_range(self, start_time: str, end_time: str) -> str:
         if start_time and end_time:
             return f"{start_time}-{end_time}"
@@ -690,5 +759,7 @@ class ConfirmPage(QFrame):
         self.result_input.clear()
         self.note_input.clear()
         self.source_raw_text_input.clear()
+        self.record_hint_label.setText("修正提示：请选择一条记录后查看缺字段、人员映射和保留名检查结果。")
+        self.record_hint_label.setStyleSheet("")
         self.feedback_label.setText("请选择一条记录进行人工确认。")
         self.feedback_label.setStyleSheet("")
