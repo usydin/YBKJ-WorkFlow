@@ -18,7 +18,7 @@ from app.config import (
 from app.database import SQLiteDataPool
 
 
-QUALITY_RULE_VERSION = "V0.4-real-input-polish"
+QUALITY_RULE_VERSION = "V0.5-OCR-prep"
 SEVERITY_ORDER = {"严重": 0, "关注": 1, "提示": 2}
 SEVERITY_WEIGHT = {"严重": 3, "关注": 2, "提示": 1}
 QUALITY_RULE_NOTES = [
@@ -26,6 +26,7 @@ QUALITY_RULE_NOTES = [
     "员工映射规则：微信网名或别名应通过员工映射表转换为真实姓名。",
     "缺字段规则：日期、项目/内容、系统类别、工作类型、维修人员是日报和统计的重要字段。",
     "重复记录规则：文本高度相似，或日期/地点/内容组合接近时，提示疑似重复，但不自动删除。",
+    "OCR 暂存规则：截图识别或 OCR 结果进入暂存区后，需人工修正确认后再导入原始输入池。",
 ]
 
 
@@ -45,28 +46,32 @@ class QualityCheckService:
             parsed_record_summary = self._collect_parsed_record_summary(connection)
             employee_mapping_summary = self._collect_employee_mapping_summary(connection)
             export_readiness_summary = self._collect_export_readiness_summary(connection)
+            ocr_staging_summary = self._collect_ocr_staging_summary(connection)
 
         issues = self._build_issues(
             raw_input_summary,
             parsed_record_summary,
             employee_mapping_summary,
             export_readiness_summary,
+            ocr_staging_summary,
         )
         conclusion = self._build_conclusion(
             issues,
             raw_input_summary,
             parsed_record_summary,
             export_readiness_summary,
+            ocr_staging_summary,
         )
         checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result = {
             "checked_at": checked_at,
             "rule_version": QUALITY_RULE_VERSION,
-            "data_source": "SQLite / raw_inputs, parsed_records, employee_aliases",
+            "data_source": "SQLite / raw_inputs, parsed_records, employee_aliases, ocr_staging_records",
             "raw_inputs": raw_input_summary,
             "parsed_records": parsed_record_summary,
             "employee_mapping": employee_mapping_summary,
             "export_readiness": export_readiness_summary,
+            "ocr_staging": ocr_staging_summary,
             "issues": issues,
             "conclusion": conclusion,
             "todo_guidance": self._build_todo_guidance(issues),
@@ -280,12 +285,38 @@ class QualityCheckService:
             "month_count": month_count,
         }
 
+    def _collect_ocr_staging_summary(self, connection) -> dict[str, int]:
+        total_count = self._fetch_count(connection, "SELECT COUNT(*) FROM ocr_staging_records")
+        draft_count = self._fetch_count(
+            connection, "SELECT COUNT(*) FROM ocr_staging_records WHERE status = 'draft'"
+        )
+        confirmed_count = self._fetch_count(
+            connection, "SELECT COUNT(*) FROM ocr_staging_records WHERE status = 'confirmed'"
+        )
+        imported_count = self._fetch_count(
+            connection, "SELECT COUNT(*) FROM ocr_staging_records WHERE status = 'imported'"
+        )
+        ignored_count = self._fetch_count(
+            connection, "SELECT COUNT(*) FROM ocr_staging_records WHERE status = 'ignored'"
+        )
+        pending_import_count = draft_count + confirmed_count
+
+        return {
+            "total_count": total_count,
+            "draft_count": draft_count,
+            "confirmed_count": confirmed_count,
+            "imported_count": imported_count,
+            "ignored_count": ignored_count,
+            "pending_import_count": pending_import_count,
+        }
+
     def _build_issues(
         self,
         raw_inputs: dict[str, int],
         parsed_records: dict[str, int],
         employee_mapping: dict[str, int],
         export_readiness: dict[str, int],
+        ocr_staging: dict[str, int],
     ) -> list[dict[str, Any]]:
         issues: list[dict[str, Any]] = []
 
@@ -307,11 +338,20 @@ class QualityCheckService:
         )
         self._append_issue(
             issues,
-            level="关注",
+            level="提示",
             issue_type="原始输入",
             count=raw_inputs["duplicate_text_count"],
             description="存在重复原始文本",
             action="建议核对重复录入，避免同一条工作记录被重复解析。",
+        )
+
+        self._append_issue(
+            issues,
+            level="关注",
+            issue_type="OCR暂存",
+            count=ocr_staging["pending_import_count"],
+            description="存在尚未导入的 OCR 暂存记录",
+            action="进入“OCR暂存”页核对、修正并导入原始输入池。",
         )
 
         self._append_issue(
@@ -446,6 +486,7 @@ class QualityCheckService:
         raw_inputs: dict[str, int],
         parsed_records: dict[str, int],
         export_readiness: dict[str, int],
+        ocr_staging: dict[str, int],
     ) -> dict[str, Any]:
         critical_count = sum(1 for item in issues if item["level"] == "严重")
         warning_count = sum(1 for item in issues if item["level"] == "关注")
@@ -465,6 +506,11 @@ class QualityCheckService:
             f"原始输入共 {raw_inputs['total_count']} 条，待解析 {raw_inputs['unparsed_count']} 条。",
             f"解析记录中待确认 {parsed_records['pending_count']} 条，已确认 {parsed_records['confirmed_count']} 条。",
         ]
+
+        if ocr_staging["pending_import_count"] > 0:
+            actions.append(
+                f"存在 {ocr_staging['pending_import_count']} 条 OCR 暂存记录尚未处理，建议进入 OCR 暂存区。"
+            )
 
         if parsed_records["worker_confirm_required_count"] > 0:
             actions.append(
@@ -515,6 +561,8 @@ class QualityCheckService:
                 guidance.append("请进入人工确认页核对重复记录，决定保留、修正或忽略。")
             elif issue_type == "原始输入" and "未解析" in description:
                 guidance.append("请先进入智能解析页处理未解析原始输入，再回到人工确认页做补全。")
+            elif issue_type == "OCR暂存" and "尚未导入" in description:
+                guidance.append("请先进入 OCR 暂存页处理截图/OCR 文本，确认并导入原始输入池。")
 
         ordered_guidance: list[str] = []
         for item in guidance:
@@ -627,6 +675,7 @@ class QualityCheckService:
         parsed_records = result["parsed_records"]
         employee_mapping = result["employee_mapping"]
         export_readiness = result["export_readiness"]
+        ocr_staging = result["ocr_staging"]
         conclusion = result["conclusion"]
         issues = result["issues"]
 
@@ -638,6 +687,13 @@ class QualityCheckService:
             f"- 规则版本：{result['rule_version']}",
             f"- 数据来源：{result['data_source']}",
             f"- 导出文件：{to_relative_source_path(target_path)}",
+            "",
+            "## OCR 暂存摘要",
+            f"- 暂存总数：{ocr_staging['total_count']}",
+            f"- 待确认/待导入数量：{ocr_staging['pending_import_count']}",
+            f"- 已确认数量：{ocr_staging['confirmed_count']}",
+            f"- 已导入数量：{ocr_staging['imported_count']}",
+            f"- 已忽略数量：{ocr_staging['ignored_count']}",
             "",
             "## 原始输入摘要",
             f"- raw_inputs 总数：{raw_inputs['total_count']}",

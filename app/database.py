@@ -136,6 +136,34 @@ class SQLiteDataPool:
                     "note": "TEXT DEFAULT ''",
                 },
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ocr_staging_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_type TEXT NOT NULL DEFAULT 'manual_paste',
+                    source_name TEXT DEFAULT '',
+                    raw_text TEXT NOT NULL,
+                    cleaned_text TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    note TEXT DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    imported_raw_input_id INTEGER DEFAULT NULL
+                )
+                """
+            )
+            self._ensure_columns(
+                connection,
+                "ocr_staging_records",
+                {
+                    "source_name": "TEXT DEFAULT ''",
+                    "cleaned_text": "TEXT DEFAULT ''",
+                    "status": "TEXT NOT NULL DEFAULT 'draft'",
+                    "note": "TEXT DEFAULT ''",
+                    "updated_at": "TEXT NOT NULL DEFAULT ''",
+                    "imported_raw_input_id": "INTEGER DEFAULT NULL",
+                },
+            )
             connection.commit()
 
         self.logger.info("SQLite data pool initialized: %s", self.db_path)
@@ -228,6 +256,113 @@ class SQLiteDataPool:
         record_id = int(cursor.lastrowid)
         self.logger.info("Raw input inserted into SQLite: id=%s", record_id)
         return record_id
+
+    def create_ocr_staging_record(self, data: dict[str, Any]) -> int:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO ocr_staging_records (
+                    source_type,
+                    source_name,
+                    raw_text,
+                    cleaned_text,
+                    status,
+                    note,
+                    created_at,
+                    updated_at,
+                    imported_raw_input_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(data.get("source_type", "")).strip() or "manual_paste",
+                    str(data.get("source_name", "")).strip(),
+                    str(data.get("raw_text", "")).strip(),
+                    str(data.get("cleaned_text", "")).strip(),
+                    str(data.get("status", "")).strip() or "draft",
+                    str(data.get("note", "")).strip(),
+                    now,
+                    now,
+                    data.get("imported_raw_input_id"),
+                ),
+            )
+            connection.commit()
+        return int(cursor.lastrowid)
+
+    def list_ocr_staging_records(self, status: str | None = None) -> list[dict[str, Any]]:
+        query = ["SELECT * FROM ocr_staging_records WHERE 1=1"]
+        params: list[Any] = []
+        normalized_status = str(status or "").strip()
+        if normalized_status:
+            query.append("AND status = ?")
+            params.append(normalized_status)
+        query.append("ORDER BY id DESC")
+
+        with self._connect() as connection:
+            rows = connection.execute(" ".join(query), tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_ocr_staging_record(self, record_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM ocr_staging_records WHERE id = ?",
+                (record_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_ocr_staging_record(self, record_id: int, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+        updates = dict(updates)
+        updates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        columns = ", ".join(f"{column} = ?" for column in updates)
+        params = list(updates.values()) + [record_id]
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE ocr_staging_records SET {columns} WHERE id = ?",
+                params,
+            )
+            connection.commit()
+
+    def count_ocr_staging_records_by_status(self) -> dict[str, int]:
+        counts = {
+            "total_count": 0,
+            "draft_count": 0,
+            "confirmed_count": 0,
+            "imported_count": 0,
+            "ignored_count": 0,
+            "pending_import_count": 0,
+        }
+        with self._connect() as connection:
+            total_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM ocr_staging_records"
+            ).fetchone()
+            counts["total_count"] = int(total_row["count"] if total_row else 0)
+
+            rows = connection.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM ocr_staging_records
+                GROUP BY status
+                """
+            ).fetchall()
+
+        for row in rows:
+            status_name = str(row["status"] or "").strip()
+            count = int(row["count"] or 0)
+            if status_name == "draft":
+                counts["draft_count"] = count
+            elif status_name == "confirmed":
+                counts["confirmed_count"] = count
+            elif status_name == "imported":
+                counts["imported_count"] = count
+            elif status_name == "ignored":
+                counts["ignored_count"] = count
+
+        counts["pending_import_count"] = (
+            counts["draft_count"] + counts["confirmed_count"]
+        )
+        return counts
 
     def count_pending_raw_inputs(self) -> int:
         with self._connect() as connection:

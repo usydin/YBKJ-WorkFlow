@@ -26,10 +26,12 @@ from app.corrections import CorrectionsLogService
 from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
+from app.ocr_staging_service import OCRStagingService
 from app.ui.confirm_page import ConfirmPage
 from app.ui.analytics_page import AnalyticsPage
 from app.ui.data_entry_page import DataEntryPage
 from app.ui.employee_page import EmployeePage
+from app.ui.ocr_staging_page import OCRStagingPage
 from app.ui.parse_page import ParsePage
 from app.ui.quality_page import QualityPage
 from app.ui.report_page import ReportPage
@@ -40,6 +42,7 @@ from app.ui.styles import get_stylesheet
 NAV_ITEMS = [
     "工作台",
     "数据录入",
+    "OCR暂存",
     "智能解析",
     "人工确认",
     "数据池",
@@ -169,6 +172,7 @@ class MainWindow(QMainWindow):
         intake_service: IntakeService,
         parser_engine,
         corrections_service: CorrectionsLogService,
+        ocr_staging_service: OCRStagingService,
         report_service,
         analytics_service,
         quality_service,
@@ -181,6 +185,7 @@ class MainWindow(QMainWindow):
         self.intake_service = intake_service
         self.parser_engine = parser_engine
         self.corrections_service = corrections_service
+        self.ocr_staging_service = ocr_staging_service
         self.report_service = report_service
         self.analytics_service = analytics_service
         self.quality_service = quality_service
@@ -286,6 +291,10 @@ class MainWindow(QMainWindow):
         self.data_entry_page = DataEntryPage(self.intake_service)
         self.data_entry_page.submitted.connect(self.handle_data_submitted)
         self.stack.addWidget(self._wrap_page(self.data_entry_page))
+        self.ocr_staging_page = OCRStagingPage(self.ocr_staging_service)
+        self.ocr_staging_page.imported.connect(self.handle_ocr_imported)
+        self.ocr_staging_page.updated.connect(self.handle_ocr_staging_updated)
+        self.stack.addWidget(self._wrap_page(self.ocr_staging_page))
         self.parse_page = ParsePage(self.data_pool, self.parser_engine)
         self.parse_page.parsed.connect(self.handle_parse_completed)
         self.stack.addWidget(self._wrap_page(self.parse_page))
@@ -309,7 +318,7 @@ class MainWindow(QMainWindow):
         self.quality_page = QualityPage(self.quality_service)
         self.stack.addWidget(self._wrap_page(self.quality_page))
 
-        for item in NAV_ITEMS[10:-1]:
+        for item in NAV_ITEMS[11:-1]:
             self.stack.addWidget(self._wrap_page(PlaceholderPage(item)))
         self.settings_page = SettingsPage(self.current_theme)
         self.stack.addWidget(self._wrap_page(self.settings_page))
@@ -447,6 +456,7 @@ class MainWindow(QMainWindow):
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
+        self.ocr_staging_page.refresh_page()
         self.analytics_page.refresh_page()
         self.quality_page.refresh_page()
         self.statusBar().showMessage("录入内容已提交到待解析队列。", 3000)
@@ -456,6 +466,7 @@ class MainWindow(QMainWindow):
         self.parse_page.refresh_page()
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
+        self.ocr_staging_page.refresh_page()
         self.analytics_page.refresh_page()
         self.quality_page.refresh_page()
         self.statusBar().showMessage("智能解析已执行，结果已写入待人工确认记录。", 3000)
@@ -466,6 +477,7 @@ class MainWindow(QMainWindow):
         self.confirm_page.refresh_page()
         self.report_page.refresh_page()
         self.excel_export_page.refresh_page()
+        self.ocr_staging_page.refresh_page()
         self.analytics_page.refresh_page()
         self.quality_page.refresh_page()
         self.statusBar().showMessage("人工确认结果已保存并写入 corrections.log。", 3000)
@@ -477,6 +489,21 @@ class MainWindow(QMainWindow):
         self.analytics_page.refresh_page()
         self.quality_page.refresh_page()
         self.statusBar().showMessage("员工映射已更新。", 3000)
+
+    def handle_ocr_imported(self) -> None:
+        self.refresh_dashboard()
+        self.ocr_staging_page.refresh_page()
+        self.parse_page.refresh_page()
+        self.confirm_page.refresh_page()
+        self.report_page.refresh_page()
+        self.excel_export_page.refresh_page()
+        self.analytics_page.refresh_page()
+        self.quality_page.refresh_page()
+        self.statusBar().showMessage("OCR 暂存文本已导入 raw_inputs，可继续执行智能解析。", 3000)
+
+    def handle_ocr_staging_updated(self) -> None:
+        self.ocr_staging_page.refresh_page()
+        self.quality_page.refresh_page()
 
     def toggle_theme(self) -> None:
         next_theme = "light" if self.current_theme == "dark" else "dark"

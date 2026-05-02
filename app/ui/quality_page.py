@@ -194,6 +194,16 @@ class QualityPage(QFrame):
                 "duplicate_text_count": "重复文本",
             },
         )
+        self.ocr_staging_card = MetricCard(
+            "OCR暂存",
+            {
+                "total_count": "总数",
+                "pending_import_count": "待处理",
+                "confirmed_count": "已确认",
+                "imported_count": "已导入",
+                "ignored_count": "已忽略",
+            },
+        )
         self.parsed_record_card = MetricCard(
             "解析记录",
             {
@@ -232,10 +242,11 @@ class QualityPage(QFrame):
         self.conclusion_card = ConclusionCard()
 
         layout.addWidget(self.raw_input_card, 0, 0)
+        layout.addWidget(self.ocr_staging_card, 1, 0)
         layout.addWidget(self.parsed_record_card, 0, 1)
-        layout.addWidget(self.employee_card, 1, 0)
-        layout.addWidget(self.export_card, 1, 1)
-        layout.addWidget(self.conclusion_card, 0, 2, 2, 1)
+        layout.addWidget(self.employee_card, 1, 1)
+        layout.addWidget(self.export_card, 0, 2)
+        layout.addWidget(self.conclusion_card, 1, 2)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(2, 1)
@@ -299,7 +310,8 @@ class QualityPage(QFrame):
             "1. 保留名规则：ybkj-pL 等开发者/录入者不能作为维修人员。\n"
             "2. 员工映射规则：微信网名需通过员工映射表转换为真实姓名。\n"
             "3. 缺字段规则：日期、项目/内容、系统类别、工作类型、维修人员是日报和统计的重要字段。\n"
-            "4. 重复记录规则：文本高度相似或日期/地点/内容相近时提示疑似重复，但不自动删除。"
+            "4. 重复记录规则：文本高度相似或日期/地点/内容相近时提示疑似重复，但不自动删除。\n"
+            "5. OCR 暂存规则：截图识别结果进入暂存区后，需人工修正确认后再导入原始输入池。"
         )
         notes_label.setObjectName("PlaceholderDescription")
         notes_label.setWordWrap(True)
@@ -315,7 +327,7 @@ class QualityPage(QFrame):
         self.checked_at_label = QLabel("检查时间：未执行")
         self.checked_at_label.setObjectName("MetaText")
 
-        self.rule_version_label = QLabel("规则版本：V0.3-real-sample-run")
+        self.rule_version_label = QLabel("规则版本：V0.5-OCR-prep")
         self.rule_version_label.setObjectName("MetaText")
 
         self.data_source_label = QLabel("数据来源：SQLite")
@@ -338,6 +350,7 @@ class QualityPage(QFrame):
 
         self.last_result = result
         self.raw_input_card.update_values(result["raw_inputs"])
+        self.ocr_staging_card.update_values(result.get("ocr_staging", {}))
         self.parsed_record_card.update_values(result["parsed_records"])
         self.employee_card.update_values(result["employee_mapping"])
         self.export_card.update_values(result["export_readiness"])

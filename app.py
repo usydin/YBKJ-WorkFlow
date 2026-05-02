@@ -16,6 +16,7 @@ from app.database import SQLiteDataPool
 from app.intake_service import IntakeService
 from app.local_config import LocalConfigService
 from app.logging_setup import setup_logging
+from app.ocr_staging_service import OCRStagingService
 from app.parser_engine import ParserEngine
 from app.quality_service import QualityCheckService
 from app.report_service import DailyReportService
@@ -60,6 +61,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     excel_export_service = ExcelExportService(data_pool)
     wecom = WeComIntegration()
     intake_service = IntakeService(data_pool, backup_service)
+    ocr_staging_service = OCRStagingService(data_pool, intake_service)
 
     logger.info("Database ready: %s", db_path)
     if cleaned_rows:
@@ -71,6 +73,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
     logger.info("Analytics service ready: %s", analytics_service.__class__.__name__)
     logger.info("Quality service ready: %s", quality_service.__class__.__name__)
     logger.info("Excel export service ready: %s", excel_export_service.__class__.__name__)
+    logger.info("OCR staging service ready: %s", ocr_staging_service.__class__.__name__)
     logger.info("WeCom enabled: %s", wecom.is_enabled())
     return {
         "data_pool": data_pool,
@@ -81,6 +84,7 @@ def bootstrap_services(logger: logging.Logger) -> dict[str, Any]:
         "analytics_service": analytics_service,
         "quality_service": quality_service,
         "excel_export_service": excel_export_service,
+        "ocr_staging_service": ocr_staging_service,
         "wecom": wecom,
         "intake_service": intake_service,
     }
@@ -109,6 +113,7 @@ def main() -> int:
         intake_service=services["intake_service"],
         parser_engine=services["parser_engine"],
         corrections_service=services["corrections_service"],
+        ocr_staging_service=services["ocr_staging_service"],
         report_service=services["report_service"],
         analytics_service=services["analytics_service"],
         quality_service=services["quality_service"],
