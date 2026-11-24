@@ -9,6 +9,8 @@
 > Version: V0.7-packaging-prep  
 > Copyright © 2026 友邦科技维保部. All rights reserved.
 
+[版权与授权声明（治理审阅稿）](COPYRIGHT.md) · [安全政策（治理审阅稿）](SECURITY.md)
+
 ## 项目简介
 
 YBKJ-WorkFlow 是一套面向维保部每日工作汇总场景的本地离线智能工作流系统。
