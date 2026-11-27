@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
 from datetime import datetime
 
 from app.backup import JSONLBackupService
@@ -29,7 +28,9 @@ class IntakeService:
         default_project: str,
         raw_text: str,
         note: str = "",
-    ) -> dict[str, str | int]:
+        *,
+        request_key: str | None = None,
+    ) -> dict[str, str | int | bool]:
         normalized_text = raw_text.strip()
         if not normalized_text:
             raise ValueError("raw_text cannot be empty")
@@ -51,8 +52,8 @@ class IntakeService:
             note=(note or "").strip(),
         )
 
-        record_id = self.data_pool.insert_raw_input(record)
-        self.backup_service.append_raw_input(asdict(record))
+        record_id, payload, replayed = self.data_pool.submit_raw_input_with_outbox(record, request_key)
+        backup_status = self._deliver_backup(record_id)
 
         self.logger.info(
             "Raw input submitted: id=%s source_type=%s source_name=%s source_path=%s operator=%s project=%s status=%s",
@@ -67,14 +68,32 @@ class IntakeService:
 
         return {
             "id": record_id,
-            "created_at": record.created_at,
-            "operator_name": record.operator_name,
-            "source_type": record.source_type,
-            "source_name": record.source_name,
-            "source_path": record.source_path,
-            "default_project": record.default_project,
-            "status": record.status,
+            "created_at": payload["created_at"],
+            "operator_name": payload["operator_name"],
+            "source_type": payload["source_type"],
+            "source_name": payload["source_name"],
+            "source_path": payload["source_path"],
+            "default_project": payload["default_project"],
+            "status": payload["status"],
+            "submission_status": "COMMITTED",
+            "backup_status": backup_status,
+            "replayed": replayed,
         }
+
+    def _deliver_backup(self, raw_id: int) -> str:
+        try:
+            self.data_pool.deliver_raw_input_backup(raw_id, self.backup_service.append_raw_input)
+            return "SYNCED"
+        except Exception:
+            # The SQLite transaction has already committed; do not tell the caller
+            # to resubmit. The durable outbox remains pending for explicit retry.
+            self.logger.warning("Raw input backup pending: id=%s", raw_id)
+            return "PENDING"
+
+    def retry_pending_backups(self, limit: int = 100) -> dict[str, int]:
+        ids = self.data_pool.pending_raw_input_backups(limit)
+        synced = sum(self._deliver_backup(raw_id) == "SYNCED" for raw_id in ids)
+        return {"attempted": len(ids), "synced": synced, "pending": len(ids) - synced}
 
     def _default_source_name(self, source_type: str) -> str:
         source_names = {

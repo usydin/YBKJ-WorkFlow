@@ -84,14 +84,16 @@ class ParserEngine:
                         )
                     ]
 
-                generated_count += self.data_pool.insert_parsed_records(parsed_records)
+                committed = self.data_pool.commit_pending_parse(int(raw_input["id"]), parsed_records)
+                if not committed:
+                    continue
+                generated_count += committed
                 pending_confirm_count += sum(
                     1 for record in parsed_records if record.confirm_status == "pending"
                 )
                 parse_warning_count += sum(
                     1 for record in parsed_records if "解析提示" in str(record.note or "")
                 )
-                self.data_pool.update_raw_input_status(int(raw_input["id"]), "parsed")
                 parsed_raw_inputs += 1
             except Exception:
                 self.logger.exception(

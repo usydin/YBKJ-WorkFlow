@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Iterable, Mapping, Any
 
@@ -44,4 +46,42 @@ class JSONLBackupService:
         return target_path
 
     def append_raw_input(self, record: Mapping[str, Any]) -> Path:
-        return self.backup_records([record], output_path=self.raw_inputs_path)
+        if "_workflow_event_id" not in record:
+            return self.backup_records([record], output_path=self.raw_inputs_path)
+        # Outbox delivery owns a SQLite write lock. Use a single database per
+        # JSONL destination. Preserve legacy lines; a corrupt projection is
+        # left untouched and remains pending rather than being silently truncated.
+        target = self.raw_inputs_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            raise OSError("backup destination must not be a symlink")
+        payload = dict(record)
+        old = target.read_bytes() if target.exists() else b""
+        event = payload["_workflow_event_id"]
+        matches = []
+        for line in old.splitlines():
+            if line.strip():
+                existing = json.loads(line)
+                if not isinstance(existing, dict):
+                    raise ValueError("invalid JSONL backup row")
+                if existing.get("_workflow_event_id") == event:
+                    matches.append(existing)
+        if matches:
+            if len(matches) != 1 or matches[0] != payload:
+                raise ValueError("conflicting backup event")
+            return target
+        suffix = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
+        if old and not old.endswith(b"\n"):
+            suffix = b"\n" + suffix
+        fd, name = tempfile.mkstemp(prefix=".raw-input-", suffix=".tmp", dir=target.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(old)
+                stream.write(suffix)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, target)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+        return target

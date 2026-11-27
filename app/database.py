@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import hashlib
+import json
+import uuid
+from contextlib import closing
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -165,6 +170,18 @@ class SQLiteDataPool:
                     "imported_raw_input_id": "INTEGER DEFAULT NULL",
                 },
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS raw_input_backup_outbox (
+                    raw_input_id INTEGER PRIMARY KEY REFERENCES raw_inputs(id),
+                    event_id TEXT NOT NULL UNIQUE,
+                    request_key TEXT UNIQUE,
+                    request_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    delivered_at TEXT
+                )
+                """
+            )
             connection.commit()
 
         self.logger.info("SQLite data pool initialized: %s", self.db_path)
@@ -224,39 +241,110 @@ class SQLiteDataPool:
             )
         return updated_rows
 
-    def insert_raw_input(self, record: RawInputRecord) -> int:
-        with self._connect() as connection:
-            cursor = connection.execute(
-                """
-                INSERT INTO raw_inputs (
-                    created_at,
-                    operator_name,
-                    source_type,
-                    source_name,
-                    source_path,
-                    default_project,
-                    raw_text,
-                    status,
-                    note
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.created_at,
-                    record.operator_name,
-                    record.source_type,
-                    record.source_name,
-                    record.source_path,
-                    record.default_project,
-                    record.raw_text,
-                    record.status,
-                    record.note,
-                ),
-            )
-            connection.commit()
+    def _insert_raw_input(self, connection: sqlite3.Connection, record: RawInputRecord) -> int:
+        cursor = connection.execute(
+            """
+            INSERT INTO raw_inputs (
+                created_at,
+                operator_name,
+                source_type,
+                source_name,
+                source_path,
+                default_project,
+                raw_text,
+                status,
+                note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.created_at,
+                record.operator_name,
+                record.source_type,
+                record.source_name,
+                record.source_path,
+                record.default_project,
+                record.raw_text,
+                record.status,
+                record.note,
+            ),
+        )
+        return int(cursor.lastrowid)
 
-        record_id = int(cursor.lastrowid)
-        self.logger.info("Raw input inserted into SQLite: id=%s", record_id)
-        return record_id
+    def insert_raw_input(self, record: RawInputRecord) -> int:
+        # Legacy low-level import/test path. Interactive intake uses the outbox.
+        with closing(self._connect()) as connection, connection:
+            return self._insert_raw_input(connection, record)
+
+    def submit_raw_input_with_outbox(
+        self, record: RawInputRecord, request_key: str | None = None
+    ) -> tuple[int, dict[str, Any], bool]:
+        """Commit the raw input and its backup intent together.
+        An optional client-generated key deduplicates an exact retry, not similar text.
+        The future HTTP adapter must scope keys and identities to authenticated users.
+        """
+        if request_key is not None and (
+            not isinstance(request_key, str) or not request_key.strip()
+            or len(request_key) > 128
+        ):
+            raise ValueError("invalid request key")
+        data = asdict(record)
+        request_data = {k: v for k, v in data.items() if k != "created_at"}
+        request_digest = hashlib.sha256(json.dumps(
+            request_data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if request_key is not None:
+                prior = connection.execute(
+                    "SELECT * FROM raw_input_backup_outbox WHERE request_key = ?",
+                    (request_key,),
+                ).fetchone()
+                if prior is not None:
+                    if prior["request_sha256"] != request_digest:
+                        raise ValueError("request key reused with different input")
+                    return int(prior["raw_input_id"]), json.loads(prior["payload_json"]), True
+            raw_id = self._insert_raw_input(connection, record)
+            event_id = uuid.uuid4().hex
+            payload = {**data, "raw_input_id": raw_id, "_workflow_event_id": event_id}
+            connection.execute(
+                """INSERT INTO raw_input_backup_outbox
+                   (raw_input_id, event_id, request_key, request_sha256, payload_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (raw_id, event_id, request_key, request_digest,
+                 json.dumps(payload, ensure_ascii=False, sort_keys=True)),
+            )
+            return raw_id, payload, False
+
+    def deliver_raw_input_backup(self, raw_id: int, writer) -> bool:
+        """Serialize delivery with the database writer lock.
+        A writer must make repeated delivery of the same event id idempotent.
+        """
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload_json, delivered_at FROM raw_input_backup_outbox WHERE raw_input_id = ?",
+                (raw_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("backup intent not found")
+            if row["delivered_at"] is None:
+                writer(json.loads(row["payload_json"]))
+                connection.execute(
+                    "UPDATE raw_input_backup_outbox SET delivered_at = ? WHERE raw_input_id = ?",
+                    (datetime.now().isoformat(), raw_id),
+                )
+            return True
+
+    def pending_raw_input_backups(self, limit: int = 100) -> list[int]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("invalid backup retry limit")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT raw_input_id FROM raw_input_backup_outbox
+                   WHERE delivered_at IS NULL ORDER BY raw_input_id LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [int(row[0]) for row in rows]
 
     def create_ocr_staging_record(self, data: dict[str, Any]) -> int:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -392,66 +480,100 @@ class SQLiteDataPool:
             )
             connection.commit()
 
-    def insert_parsed_records(self, records: list[ParsedRecord]) -> int:
+    def _insert_parsed_records(self, connection: sqlite3.Connection, records: list[ParsedRecord]) -> int:
         if not records:
             return 0
-
-        with self._connect() as connection:
-            connection.executemany(
-                """
-                INSERT INTO parsed_records (
-                    raw_input_id,
-                    created_at,
-                    work_date,
-                    project,
-                    system_category,
-                    work_type,
-                    status,
-                    start_time,
-                    end_time,
-                    duration_hours,
-                    wechat_nickname,
-                    worker_names,
-                    employee_confirm_required,
-                    location,
-                    device_or_part,
-                    problem_description,
-                    solution,
-                    result,
-                    source_raw_text,
-                    confirm_status,
-                    note
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        record.raw_input_id,
-                        record.created_at,
-                        record.work_date,
-                        record.project,
-                        record.system_category,
-                        record.work_type,
-                        record.status,
-                        record.start_time,
-                        record.end_time,
-                        record.duration_hours,
-                        record.wechat_nickname,
-                        record.worker_names,
-                        1 if record.employee_confirm_required else 0,
-                        record.location,
-                        record.device_or_part,
-                        record.problem_description,
-                        record.solution,
-                        record.result,
-                        record.source_raw_text,
-                        record.confirm_status,
-                        record.note,
-                    )
-                    for record in records
-                ],
-            )
-            connection.commit()
+        connection.executemany(
+            """
+            INSERT INTO parsed_records (
+                raw_input_id,
+                created_at,
+                work_date,
+                project,
+                system_category,
+                work_type,
+                status,
+                start_time,
+                end_time,
+                duration_hours,
+                wechat_nickname,
+                worker_names,
+                employee_confirm_required,
+                location,
+                device_or_part,
+                problem_description,
+                solution,
+                result,
+                source_raw_text,
+                confirm_status,
+                note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    record.raw_input_id,
+                    record.created_at,
+                    record.work_date,
+                    record.project,
+                    record.system_category,
+                    record.work_type,
+                    record.status,
+                    record.start_time,
+                    record.end_time,
+                    record.duration_hours,
+                    record.wechat_nickname,
+                    record.worker_names,
+                    1 if record.employee_confirm_required else 0,
+                    record.location,
+                    record.device_or_part,
+                    record.problem_description,
+                    record.solution,
+                    record.result,
+                    record.source_raw_text,
+                    record.confirm_status,
+                    record.note,
+                )
+                for record in records
+            ],
+        )
         return len(records)
+
+    def insert_parsed_records(self, records: list[ParsedRecord]) -> int:
+        # Legacy explicit import path. Pending-parser processing uses atomic commit below.
+        with closing(self._connect()) as connection, connection:
+            return self._insert_parsed_records(connection, records)
+
+    def _mark_pending_parsed(self, connection: sqlite3.Connection, raw_id: int) -> None:
+        cursor = connection.execute(
+            "UPDATE raw_inputs SET status = 'parsed' WHERE id = ? AND status = 'pending_parse'",
+            (raw_id,),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("pending input state changed")
+
+    def commit_pending_parse(self, raw_id: int, records: list[ParsedRecord]) -> int:
+        """Atomically insert candidates and mark their source parsed.
+        Return zero for another worker's already-committed source.
+        Existing partial legacy batches require explicit reconciliation, never deletion.
+        """
+        if not records or any(r.raw_input_id != raw_id or r.confirm_status != "pending" for r in records):
+            raise ValueError("invalid pending parse batch")
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status FROM raw_inputs WHERE id = ?", (raw_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("raw input not found")
+            if row["status"] != "pending_parse":
+                return 0
+            if connection.execute(
+                "SELECT 1 FROM parsed_records WHERE raw_input_id = ? LIMIT 1", (raw_id,)
+            ).fetchone():
+                raise RuntimeError("legacy partial parse requires reconciliation")
+            count = self._insert_parsed_records(connection, records)
+            self._mark_pending_parsed(connection, raw_id)
+            return count
 
     def get_recent_parsed_records(self, limit: int = 100) -> list[dict[str, Any]]:
         with self._connect() as connection:
