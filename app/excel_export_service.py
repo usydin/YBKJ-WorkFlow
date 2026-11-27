@@ -76,6 +76,15 @@ class ExcelExportService:
         # 5. Export Info Sheet
         self._build_info_sheet(wb, filters)
 
+        # This exporter intentionally produces static values, not formulas.
+        # Preserve user-provided text literally in all five worksheets,
+        # including strings that openpyxl would otherwise treat as formulas
+        # or Excel error codes.
+        for sheet in wb:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if isinstance(cell.value, str):
+                        cell.data_type = "s"
         return wb
 
     def save_workbook(self, wb: Workbook, date_str: str | None) -> Path:

@@ -12,8 +12,8 @@ from app.models import ParsedRecord
 
 
 class ParserEngine:
-    DATE_PATTERN = re.compile(r"(20\d{2})-(\d{1,2})-(\d{1,2})")
-    TIME_RANGE_PATTERN = re.compile(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})")
+    DATE_PATTERN = re.compile(r"(?<!\d)(20\d{2})-(\d{1,2})-(\d{1,2})(?!\d)")
+    TIME_RANGE_PATTERN = re.compile(r"(?<!\d)(\d{1,2}:\d{2})\s*[-–—~～至到]\s*(?:(?:次日|翌日|第二天)\s*)?(\d{1,2}:\d{2})(?!\d)")
     def __init__(self, data_pool: SQLiteDataPool) -> None:
         self.data_pool = data_pool
         self.logger = logging.getLogger("ybkj_workflow.parser")
@@ -235,26 +235,46 @@ class ParserEngine:
         if not match:
             return ""
         year, month, day = match.groups()
-        return f"{year}-{int(month):02d}-{int(day):02d}"
+        try:
+            return datetime(int(year), int(month), int(day)).date().isoformat()
+        except ValueError:
+            return ""
 
     def _extract_time_range(self, text: str) -> tuple[str, str, float]:
         match = self.TIME_RANGE_PATTERN.search(text)
         if not match:
             return "", "", 0.0
-
         start_time, end_time = match.groups()
         try:
             start_dt = datetime.strptime(start_time, "%H:%M")
             end_dt = datetime.strptime(end_time, "%H:%M")
-            duration = max((end_dt - start_dt).total_seconds() / 3600, 0.0)
         except ValueError:
-            duration = 0.0
-
-        return start_time, end_time, round(duration, 2)
+            return "", "", 0.0
+        delta = (end_dt - start_dt).total_seconds()
+        # A reversed clock alone is not evidence of an overnight shift.
+        explicit_next_day = bool(
+            re.search(r"次日|翌日|第二天", match.group(0))
+            or re.match(r"\s*[（(]?\s*跨夜", text[match.end():])
+        )
+        if explicit_next_day:
+            delta += 86400
+        if delta < 0 or delta > 86400:
+            return "", "", 0.0
+        return start_dt.strftime("%H:%M"), end_dt.strftime("%H:%M"), round(delta / 3600, 2)
 
     def _extract_status(self, text: str) -> str:
-        if any(keyword in text for keyword in ("未完成", "待处理", "继续处理", "未恢复")):
+        # Deliberately conservative: mixed or negative evidence is not a
+        # verified completion. The existing human confirmation remains required.
+        negative = ("未完成", "没有完成", "没完成", "尚未完成", "未能完成",
+                    "未全部完成", "未彻底完成", "并未完成", "未恢复", "没有恢复",
+                    "没恢复", "未能恢复", "尚未恢复", "待处理", "继续处理", "待恢复")
+        if any(keyword in text for keyword in negative):
             return "未完成"
+        uncertain = ("预计完成", "计划完成", "尚需完成", "待完成", "待确认",
+                     "是否完成", "能否完成", "未确认", "预计恢复", "计划恢复",
+                     "是否恢复", "能否恢复")
+        if any(keyword in text for keyword in uncertain):
+            return "待确认"
         if any(keyword in text for keyword in ("已完成", "完成", "恢复正常")):
             return "完成"
         return "待确认"

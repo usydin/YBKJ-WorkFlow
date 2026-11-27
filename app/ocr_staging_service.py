@@ -78,6 +78,8 @@ class OCRStagingService:
             raise ValueError("该暂存记录已导入 raw_inputs，不可重复修改导入状态。")
 
         normalized_status = self._normalize_status(status)
+        if normalized_status == "imported":
+            raise ValueError("导入状态仅能由导入操作设置。")
         self.data_pool.update_ocr_staging_record(
             record_id,
             {
@@ -91,6 +93,8 @@ class OCRStagingService:
         record = self.data_pool.get_ocr_staging_record(record_id)
         if record is None:
             raise ValueError("暂存记录不存在。")
+        if str(record.get("status", "")) == "imported":
+            raise ValueError("已导入记录不可忽略。")
         self.data_pool.update_ocr_staging_record(record_id, {"status": "ignored"})
 
     def import_to_raw_inputs(self, record_id: int) -> dict[str, Any]:
@@ -101,6 +105,8 @@ class OCRStagingService:
         current_status = str(record.get("status", "")).strip()
         if current_status == "imported":
             raise ValueError("该暂存记录已导入 raw_inputs，请勿重复导入。")
+        if current_status != "confirmed":
+            raise ValueError("仅已人工确认的暂存记录可以导入。")
 
         import_text = (
             str(record.get("cleaned_text", "")).strip()

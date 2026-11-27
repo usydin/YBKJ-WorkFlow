@@ -25,6 +25,7 @@ class SQLiteDataPool:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def _table_columns(self, connection: sqlite3.Connection, table_name: str) -> set[str]:
@@ -850,26 +851,24 @@ class SQLiteDataPool:
             connection.commit()
 
     def resolve_worker_name(self, raw_name: str) -> tuple[str, bool]:
-        """返回 (mapped_name, is_mapped)"""
+        """Resolve only a single active row; ambiguous identity requires review."""
         name = raw_name.strip()
-        if not name:
+        if not name or is_reserved_person_name(name):
             return "", False
-        if is_reserved_person_name(name):
-            return "", False
-            
         with self._connect() as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 """
-                SELECT real_name FROM employee_aliases 
-                WHERE is_active = 1 
+                SELECT real_name FROM employee_aliases
+                WHERE is_active = 1
                 AND (real_name = ? OR wechat_nickname = ? OR alias = ?)
-                LIMIT 1
+                LIMIT 2
                 """,
-                (name, name, name)
-            ).fetchone()
-            
-        if row:
-            return str(row["real_name"]), True
+                (name, name, name),
+            ).fetchall()
+        if len(rows) == 1:
+            resolved = str(rows[0]["real_name"]).strip()
+            if resolved and not is_reserved_person_name(resolved):
+                return resolved, True
         return name, False
 
     def resolve_worker_names(self, raw_names_text: str) -> dict[str, Any]:
@@ -899,26 +898,8 @@ class SQLiteDataPool:
         }
 
     def resolve_employee_alias(self, nickname: str) -> str:
-        if not nickname.strip():
-            return ""
-
-        with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT real_name
-                FROM employee_aliases
-                WHERE is_active = 1
-                  AND (
-                    wechat_nickname = ?
-                    OR alias = ?
-                    OR real_name = ?
-                  )
-                ORDER BY id ASC
-                LIMIT 1
-                """,
-                (nickname, nickname, nickname),
-            ).fetchone()
-        return "" if row is None else str(row["real_name"])
+        resolved, is_mapped = self.resolve_worker_name(nickname)
+        return resolved if is_mapped else ""
 
     def get_dashboard_counts(self) -> dict[str, Any]:
         with self._connect() as connection:
