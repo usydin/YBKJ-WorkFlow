@@ -517,6 +517,24 @@ class SQLiteDataPool:
             ).fetchone()
         return int(row["count"])
 
+    def read_submission_snapshot(self, request_key: str, operator_id: str) -> dict[str, Any] | None:
+        """Internal snapshot for the scoped submission service; not a public API."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                """SELECT r.*, o.delivered_at AS backup_delivered_at
+                   FROM raw_inputs r JOIN raw_input_backup_outbox o ON o.raw_input_id = r.id
+                   WHERE o.request_key = ? AND r.operator_name = ?""",
+                (request_key, operator_id),
+            ).fetchone()
+            if row is None:
+                return None
+            counts = {str(x[0]): int(x[1]) for x in connection.execute(
+                "SELECT confirm_status, COUNT(*) FROM parsed_records WHERE raw_input_id = ? GROUP BY confirm_status",
+                (row["id"],),
+            )}
+            return {"raw": dict(row), "review_counts": counts}
+
     def get_pending_raw_inputs(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
