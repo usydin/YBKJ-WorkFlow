@@ -1,0 +1,9 @@
+# P2-A — WorkFlow metrics V1 read-side candidate
+
+Parent: a3546f1ebfbd5c4c98e47ba5338c2d8266a3850b. P1-B2 Mac synthetic gate: 52/52 PASS; 16/16 verified blobs. Real migration, GUI and NotiVision integration remain open.
+
+The dependency-free metrics contract separates task elapsed minutes, explicit reported person-minutes, and legacy full-participation estimates. Missing elapsed/participant values are unknown, not zero. Legacy zero hours is an unknown sentinel. Totals are null when the selected scope is incomplete; known subtotals and coverage are reported separately. Explicit allocations require a stable employee ID, complete roster flag, and SHA-256 binding to the exact current record. These inputs are caller-supplied and not independently authenticated. No person-minute persistence or identity authorization is implemented yet. No attendance, unique clock-time, verified equipment recovery, payroll or risk closure claims. Overlapping task allocations may sum; do not treat these as clock-hour deduplicated attendance.
+
+Only confirmed rows enter metrics. Duplicate IDs and stale/out-of-scope allocations fail closed. Inclusive date windows use the reported work date; overnight clock-day allocation is not implemented. Existing reports and Excel remain unchanged for compatibility. The local pool adapter queries existing confirmed rows, not a platform authorization layer.
+
+P2-B should use this module for a read-only synthetic platform endpoint and shared dashboard, with properly scoped rows, verified fixture identity, and explicit demo labels. Later production work includes durable audited participation records, authenticated scope/identity, consistent report exports, equipment linking, historical migration and backups. No online deployment, main branch, actual historical data or external APIs touched.
