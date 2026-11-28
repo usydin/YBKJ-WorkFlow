@@ -182,6 +182,20 @@ class SQLiteDataPool:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS record_review_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    record_id INTEGER NOT NULL REFERENCES parsed_records(id),
+                    raw_input_id INTEGER NOT NULL REFERENCES raw_inputs(id),
+                    actor TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    before_json TEXT NOT NULL,
+                    after_json TEXT NOT NULL
+                )
+                """
+            )
             connection.commit()
 
         self.logger.info("SQLite data pool initialized: %s", self.db_path)
@@ -303,17 +317,55 @@ class SQLiteDataPool:
                     if prior["request_sha256"] != request_digest:
                         raise ValueError("request key reused with different input")
                     return int(prior["raw_input_id"]), json.loads(prior["payload_json"]), True
-            raw_id = self._insert_raw_input(connection, record)
-            event_id = uuid.uuid4().hex
-            payload = {**data, "raw_input_id": raw_id, "_workflow_event_id": event_id}
-            connection.execute(
-                """INSERT INTO raw_input_backup_outbox
-                   (raw_input_id, event_id, request_key, request_sha256, payload_json)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (raw_id, event_id, request_key, request_digest,
-                 json.dumps(payload, ensure_ascii=False, sort_keys=True)),
-            )
+            raw_id, payload = self._insert_raw_with_outbox(connection, record, request_key, request_digest)
             return raw_id, payload, False
+
+    def _insert_raw_with_outbox(self, connection, record, request_key=None, request_digest=None):
+        data = asdict(record)
+        if request_digest is None:
+            request_digest = hashlib.sha256(json.dumps(
+                {k: v for k, v in data.items() if k != "created_at"},
+                sort_keys=True, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")).hexdigest()
+        raw_id = self._insert_raw_input(connection, record)
+        event_id = uuid.uuid4().hex
+        payload = {**data, "raw_input_id": raw_id, "_workflow_event_id": event_id}
+        connection.execute(
+            """INSERT INTO raw_input_backup_outbox
+               (raw_input_id, event_id, request_key, request_sha256, payload_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (raw_id, event_id, request_key, request_digest,
+             json.dumps(payload, ensure_ascii=False, sort_keys=True)),
+        )
+        return raw_id, payload
+
+    def commit_ocr_import(self, record_id: int, expected: dict[str, Any],
+                          record: RawInputRecord) -> int:
+        """Commit reviewed staging, raw input and backup intent in one transaction."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM ocr_staging_records WHERE id = ?", (record_id,)
+            ).fetchone()
+            if row is None or row["status"] != "confirmed" or row["imported_raw_input_id"] is not None:
+                raise ValueError("仅未导入的已确认暂存记录可以导入。")
+            if dict(row) != expected:
+                raise ValueError("暂存记录已变更，请重新加载并确认。")
+            if record.raw_text != (str(row["cleaned_text"] or "").strip() or str(row["raw_text"] or "").strip()):
+                raise ValueError("导入内容与确认文本不一致。")
+            raw_id, _ = self._insert_raw_with_outbox(connection, record)
+            self._mark_ocr_imported(connection, record_id, raw_id)
+            return raw_id
+
+    def _mark_ocr_imported(self, connection, record_id: int, raw_id: int) -> None:
+        cursor = connection.execute(
+            """UPDATE ocr_staging_records SET status = 'imported',
+               imported_raw_input_id = ?, updated_at = ?
+               WHERE id = ? AND status = 'confirmed' AND imported_raw_input_id IS NULL""",
+            (raw_id, datetime.now().isoformat(), record_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("OCR staging state changed")
 
     def deliver_raw_input_backup(self, raw_id: int, writer) -> bool:
         """Serialize delivery with the database writer lock.
@@ -403,15 +455,20 @@ class SQLiteDataPool:
         if not updates:
             return
         updates = dict(updates)
-        updates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not set(updates) <= {"cleaned_text", "note", "status"}:
+            raise ValueError("invalid OCR update fields")
+        if "status" in updates and updates["status"] not in {"draft", "confirmed", "ignored"}:
+            raise ValueError("invalid OCR status")
+        updates["updated_at"] = datetime.now().isoformat()
         columns = ", ".join(f"{column} = ?" for column in updates)
         params = list(updates.values()) + [record_id]
-        with self._connect() as connection:
-            connection.execute(
-                f"UPDATE ocr_staging_records SET {columns} WHERE id = ?",
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                f"UPDATE ocr_staging_records SET {columns} WHERE id = ? AND status <> 'imported' AND imported_raw_input_id IS NULL",
                 params,
             )
-            connection.commit()
+            if cursor.rowcount != 1:
+                raise ValueError("暂存记录不存在或已经导入。")
 
     def count_ocr_staging_records_by_status(self) -> dict[str, int]:
         counts = {
@@ -642,6 +699,44 @@ class SQLiteDataPool:
 
     def get_parsed_record_snapshot(self, record_id: int) -> dict[str, Any] | None:
         return self.get_parsed_record(record_id)
+
+    def apply_record_review(self, record_id: int, expected: dict[str, Any],
+                            updates: dict[str, Any], actor: str, action: str) -> dict[str, Any]:
+        """Atomic revision and audit; stale editor snapshots cannot overwrite a newer review.
+        Caller supplies actor; HTTP integration must derive actor from authenticated identity.
+        """
+        allowed = {"work_date", "project", "system_category", "work_type", "status",
+                   "start_time", "end_time", "duration_hours", "wechat_nickname",
+                   "worker_names", "employee_confirm_required", "location", "device_or_part",
+                   "problem_description", "solution", "result", "note", "updated_at"}
+        transitions = {"confirm": "confirmed", "ignore": "ignored", "restore_pending": "pending"}
+        if action not in {"update", *transitions} or not isinstance(actor, str) or not actor.strip():
+            raise ValueError("invalid review actor or action")
+        if not set(updates) <= allowed:
+            raise ValueError("invalid review fields")
+        changes = dict(updates)
+        if action in transitions:
+            changes["confirm_status"] = transitions[action]
+        changes["updated_at"] = datetime.now().isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM parsed_records WHERE id = ?", (record_id,)).fetchone()
+            if row is None or dict(row) != expected:
+                raise ValueError("记录已变化，请重新加载后审核。")
+            before = dict(row)
+            columns = ", ".join(f"{key} = ?" for key in changes)
+            connection.execute(f"UPDATE parsed_records SET {columns} WHERE id = ?",
+                               [*changes.values(), record_id])
+            after = dict(connection.execute("SELECT * FROM parsed_records WHERE id = ?", (record_id,)).fetchone())
+            cursor = connection.execute(
+                """INSERT INTO record_review_events
+                   (record_id, raw_input_id, actor, action, created_at, before_json, after_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record_id, before["raw_input_id"], actor.strip(), action, changes["updated_at"],
+                 json.dumps(before, ensure_ascii=False, sort_keys=True),
+                 json.dumps(after, ensure_ascii=False, sort_keys=True)),
+            )
+            return {"event_id": int(cursor.lastrowid), "before": before, "after": after}
 
     def update_parsed_record(self, record_id: int, updates: dict[str, Any]) -> None:
         if not updates:

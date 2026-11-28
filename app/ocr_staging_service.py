@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from app.models import RawInputRecord
 from typing import Any
 
 from app.database import SQLiteDataPool
@@ -121,7 +123,10 @@ class OCRStagingService:
         source_name = str(record.get("source_name", "")).strip() or "OCR暂存导入"
         note = str(record.get("note", "")).strip()
 
-        result = self.intake_service.submit_raw_input(
+        if self.data_pool.db_path.resolve() != self.intake_service.data_pool.db_path.resolve():
+            raise ValueError("OCR 与录入服务必须使用同一数据库。")
+        raw = RawInputRecord(
+            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             operator_name="OCR暂存导入",
             source_type=source_type,
             source_name=source_name,
@@ -130,14 +135,8 @@ class OCRStagingService:
             raw_text=import_text,
             note=note,
         )
-        imported_raw_input_id = int(result["id"])
-        self.data_pool.update_ocr_staging_record(
-            record_id,
-            {
-                "status": "imported",
-                "imported_raw_input_id": imported_raw_input_id,
-            },
-        )
+        imported_raw_input_id = self.data_pool.commit_ocr_import(record_id, record, raw)
+        backup_status = self.intake_service._deliver_backup(imported_raw_input_id)
         self.logger.info(
             "OCR staging imported to raw_inputs: staging_id=%s raw_input_id=%s",
             record_id,
@@ -148,6 +147,8 @@ class OCRStagingService:
             "imported_raw_input_id": imported_raw_input_id,
             "source_type": source_type,
             "source_name": source_name,
+            "submission_status": "COMMITTED",
+            "backup_status": backup_status,
         }
 
     def get_summary(self) -> dict[str, int]:

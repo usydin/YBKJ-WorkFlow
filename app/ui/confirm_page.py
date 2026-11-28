@@ -639,38 +639,42 @@ class ConfirmPage(QFrame):
         self._apply_action("restore_pending", "pending")
 
     def _apply_action(self, action_type: str, confirm_status: str | None) -> None:
-        if self.current_record_id is None:
+        if self.current_record_id is None or self.current_record_snapshot is None:
             self.feedback_label.setText("请先选择一条记录。")
             self.feedback_label.setStyleSheet("color: #FCA5A5;")
             return
-
-        before = self.data_pool.get_parsed_record_snapshot(self.current_record_id)
-        if before is None:
-            self.feedback_label.setText("记录不存在，可能已被删除。")
+        try:
+            receipt = self.data_pool.apply_record_review(
+                self.current_record_id, self.current_record_snapshot,
+                self._collect_updates(), self.default_operator_name or "未指定操作员", action_type,
+            )
+        except Exception:
+            self.feedback_label.setText("审核未提交，请重新加载记录或检查数据库。")
             self.feedback_label.setStyleSheet("color: #FCA5A5;")
             return
-
-        updates = self._collect_updates()
-        if confirm_status is not None:
-            updates["confirm_status"] = confirm_status
-        self.data_pool.update_parsed_record(self.current_record_id, updates)
-
-        after = self.data_pool.get_parsed_record_snapshot(self.current_record_id) or {}
-        self.corrections_service.append(
-            operator_name=self.default_operator_name,
-            action_type=action_type,
-            record_id=self.current_record_id,
-            raw_input_id=int(after.get("raw_input_id", 0)),
-            before=before,
-            after=after,
-            source_raw_text=str(after.get("source_raw_text", "")),
-            note=str(after.get("note", "")),
-        )
-
-        self.feedback_label.setText(f"操作成功：{action_type}，记录 ID {self.current_record_id}")
-        self.feedback_label.setStyleSheet("color: #86EFAC;")
+        before, after = receipt["before"], receipt["after"]
+        # Compatibility export only: the authoritative audit is already committed.
+        mirror_ok = True
+        try:
+            self.corrections_service.append(
+                operator_name=self.default_operator_name,
+                action_type=action_type,
+                record_id=self.current_record_id,
+                raw_input_id=int(after["raw_input_id"]),
+                before=before, after=after,
+                source_raw_text=str(after.get("source_raw_text", "")),
+                note=str(after.get("note", "")),
+            )
+        except Exception:
+            mirror_ok = False
+        record_id = self.current_record_id
         self.refresh_page()
         self.updated.emit()
+        message = f"操作成功：{action_type}，记录 ID {record_id}，审计 ID {receipt['event_id']}"
+        if not mirror_ok:
+            message += "（兼容修正日志未写入，数据库审计已保存）"
+        self.feedback_label.setText(message)
+        self.feedback_label.setStyleSheet("color: #86EFAC;" if mirror_ok else "color: #FBBF24;")
 
     def _extract_sender_from_text(self, text: str) -> str:
         return extract_wechat_sender(text)
