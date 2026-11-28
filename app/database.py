@@ -718,8 +718,26 @@ class SQLiteDataPool:
     def get_parsed_record_snapshot(self, record_id: int) -> dict[str, Any] | None:
         return self.get_parsed_record(record_id)
 
+    def list_scoped_review_rows(self, projects: tuple[str, ...], after_id: int, limit: int) -> list[dict[str, Any]]:
+        if not projects:
+            return []
+        marks = ",".join("?" for _ in projects)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""SELECT p.*, r.default_project AS scope_project
+                    FROM parsed_records p JOIN raw_inputs r ON r.id = p.raw_input_id
+                    JOIN raw_input_backup_outbox o ON o.raw_input_id = r.id
+                    WHERE r.status = 'parsed' AND o.request_key GLOB 'wf1:*'
+                    AND r.default_project IN ({marks}) AND p.id > ?
+                    AND p.confirm_status IN ('pending','confirmed','ignored')
+                    ORDER BY p.id LIMIT ?""",
+                (*projects, after_id, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def apply_record_review(self, record_id: int, expected: dict[str, Any],
-                            updates: dict[str, Any], actor: str, action: str) -> dict[str, Any]:
+                            updates: dict[str, Any], actor: str, action: str,
+                            *, scope_project: str | None = None) -> dict[str, Any]:
         """Atomic revision and audit; stale editor snapshots cannot overwrite a newer review.
         Caller supplies actor; HTTP integration must derive actor from authenticated identity.
         """
@@ -741,6 +759,23 @@ class SQLiteDataPool:
             row = connection.execute("SELECT * FROM parsed_records WHERE id = ?", (record_id,)).fetchone()
             if row is None or dict(row) != expected:
                 raise ValueError("记录已变化，请重新加载后审核。")
+            if scope_project is not None:
+                source = connection.execute(
+                    """SELECT r.default_project FROM raw_inputs r
+                       JOIN raw_input_backup_outbox o ON o.raw_input_id = r.id
+                       WHERE r.id = ? AND r.status = 'parsed' AND o.request_key GLOB 'wf1:*'""",
+                    (row["raw_input_id"],),
+                ).fetchone()
+                if source is None or source["default_project"] != scope_project:
+                    raise PermissionError("record outside review scope")
+                state = row["confirm_status"]
+                if not ((state == "pending" and action in {"update", "confirm", "ignore"})
+                        or (state in {"confirmed", "ignored"} and action == "restore_pending" and not updates)):
+                    raise ValueError("invalid scoped review transition")
+                if "project" in updates and updates["project"] != scope_project:
+                    raise ValueError("cannot transfer project through review")
+                if action == "confirm" and updates.get("project", row["project"]) != scope_project:
+                    raise ValueError("correct project mismatch explicitly before confirmation")
             before = dict(row)
             columns = ", ".join(f"{key} = ?" for key in changes)
             connection.execute(f"UPDATE parsed_records SET {columns} WHERE id = ?",
